@@ -1,0 +1,15 @@
+[Unit]
+Description=Jetson Nano Speaking OCR Assistant
+After=sound.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@PROJECT_ROOT@
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 @PROJECT_ROOT@/src/main_demo.py --mode gpio
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

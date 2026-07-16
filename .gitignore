@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Device-local configuration and generated artifacts
+config/config.json
+bin/piper/
+models/piper/*.onnx
+models/piper/*.onnx.json
+vendor/
+tmp/
+*.engine
+*.wts

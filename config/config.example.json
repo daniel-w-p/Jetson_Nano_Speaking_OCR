@@ -1,0 +1,31 @@
+{
+  "camera": {
+    "device": 0,
+    "capture_width": 1280,
+    "capture_height": 720,
+    "warmup_frames": 10
+  },
+  "ocr": {
+    "language": "pol",
+    "page_segmentation_mode": 6,
+    "max_characters": 700
+  },
+  "speech": {
+    "voice": "pl_PL-gosia-medium.onnx",
+    "aplay_device": ""
+  },
+  "yolo": {
+    "confidence": 0.55,
+    "input_width": 640,
+    "max_objects": 3,
+    "engine": "vendor/JetsonYolov5/yolov5/build/yolov5n.engine",
+    "plugin": "vendor/JetsonYolov5/yolov5/build/libmyplugins.so"
+  },
+  "gpio": {
+    "enabled": false,
+    "describe_pin": 11,
+    "read_pin": 13,
+    "board_numbering": true,
+    "bounce_time_ms": 500
+  }
+}
