@@ -30,7 +30,7 @@ After reboot, verify the baseline:
 ```bash
 cat /etc/nv_tegra_release       # expected release R32.7.1 for JetPack 4.6.1
 python3 --version               # expected Python 3.6.x
-nvcc --version                  # expected CUDA 10.2
+/usr/local/cuda/bin/nvcc --version  # expected CUDA 10.2
 dpkg -l | grep -E 'tensorrt|nvinfer'
 ```
 
@@ -58,7 +58,42 @@ sudo jetson_clocks
 ./scripts/diagnose.sh
 ```
 
-The idempotent bootstrap installs OpenCV, Tesseract with Polish data, ALSA utilities, PyCUDA and build dependencies; downloads the archived ARM64 Piper binary and Polish `gosia-medium` voice; and creates the local configuration. Inspect or edit:
+Run the bootstrap as the regular login user, without putting `sudo` before the script name. It requests `sudo` only for package installation and system configuration and can safely be run again.
+
+The bootstrap does not install `python3-pycuda`, because that package has no installation candidate on some JetPack 4.6.1 images. Instead, it:
+
+- installs `python3-pip`, Python headers, the compiler toolchain and Boost libraries;
+- adds `/usr/local/cuda/bin` and `/usr/local/cuda/lib64` to `~/.bashrc` without duplicating entries;
+- installs Python 3.6-compatible build tools, including Cython 0.29.36 and NumPy;
+- builds PyCUDA 2022.1 from source against the CUDA 10.2 headers and libraries;
+- verifies that PyCUDA imports and reports the CUDA version.
+
+It then installs OpenCV, Tesseract with Polish data, ALSA and the remaining tools; downloads the archived ARM64 Piper binary and Polish `gosia-medium` voice; and creates the local configuration. After the first successful run, load the saved variables in the current terminal (new terminals do this automatically):
+
+```bash
+source ~/.bashrc
+python3 -c "import pycuda.driver as cuda; print('CUDA version:', cuda.get_version())"
+```
+
+If an earlier bootstrap stopped only at PyCUDA, rerunning it is the simplest recovery. The following block is the manual equivalent of its PyCUDA build stage and can be used for diagnosis:
+
+```bash
+export PATH=/usr/local/cuda/bin${PATH:+:${PATH}}
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+export CUDA_INC_DIR=/usr/local/cuda/include
+export CUDA_NDARRAY_CUDA_H=1
+
+python3 -m pip install --user --upgrade "pip<22" "setuptools<60" "wheel<0.38"
+python3 -m pip install --user "Cython==0.29.36" numpy
+python3 -m pip install --user --no-cache-dir \
+  --global-option=build_ext \
+  --global-option="-I/usr/local/cuda/include" \
+  --global-option="-L/usr/local/cuda/lib64" \
+  "pycuda==2022.1"
+python3 -c "import pycuda.driver as cuda; print('CUDA version:', cuda.get_version())"
+```
+
+Do not run `sudo pip3`; Python packages are installed for the same user that will run the service. Inspect or edit the generated configuration:
 
 ```bash
 nano config/config.json

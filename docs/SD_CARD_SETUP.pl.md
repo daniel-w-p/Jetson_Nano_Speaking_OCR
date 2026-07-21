@@ -30,7 +30,7 @@ Po restarcie:
 ```bash
 cat /etc/nv_tegra_release       # oczekiwane R32.7.1 dla JetPack 4.6.1
 python3 --version               # oczekiwany Python 3.6.x
-nvcc --version                  # oczekiwana CUDA 10.2
+/usr/local/cuda/bin/nvcc --version  # oczekiwana CUDA 10.2
 dpkg -l | grep -E 'tensorrt|nvinfer'
 ```
 
@@ -57,7 +57,42 @@ Profil `nvpmodel -m 0` to 10 W na Nano. Użyj go podczas instalacji i testów z 
 nano config/config.json
 ```
 
-Skrypt można uruchamiać ponownie. Instaluje OpenCV, Tesseract z językiem polskim, ALSA, PyCUDA i narzędzia kompilacji; pobiera archiwalny Piper ARM64 oraz głos `gosia-medium`; tworzy lokalną konfigurację.
+Uruchom bootstrap jako zwykły użytkownik, bez `sudo` przed nazwą skryptu. Skrypt sam używa `sudo` tylko do instalacji pakietów i konfiguracji systemowej. Można go bezpiecznie uruchamiać ponownie.
+
+Bootstrap nie instaluje `python3-pycuda`, ponieważ ten pakiet nie ma kandydata w części obrazów JetPack 4.6.1. Zamiast tego:
+
+- instaluje `python3-pip`, nagłówki Pythona, kompilator i biblioteki Boost;
+- dopisuje do `~/.bashrc` ścieżki `/usr/local/cuda/bin` i `/usr/local/cuda/lib64` (bez tworzenia duplikatów);
+- instaluje wersje narzędzi zgodne z Pythonem 3.6, w tym Cython 0.29.36 i NumPy;
+- buduje PyCUDA 2022.1 ze źródeł z nagłówkami i bibliotekami CUDA 10.2;
+- sprawdza import PyCUDA i zgłaszaną wersję CUDA.
+
+Następnie instaluje OpenCV, Tesseract z językiem polskim, ALSA i pozostałe narzędzia; pobiera archiwalny Piper ARM64 oraz głos `gosia-medium`; tworzy lokalną konfigurację. Po pierwszym poprawnym wykonaniu wczytaj zapisane zmienne w bieżącym terminalu (nowy terminal zrobi to automatycznie):
+
+```bash
+source ~/.bashrc
+python3 -c "import pycuda.driver as cuda; print('Wersja CUDA:', cuda.get_version())"
+```
+
+Jeśli bootstrap zatrzymał się wcześniej wyłącznie na PyCUDA, najprościej uruchomić go ponownie. Poniższy blok jest ręcznym odpowiednikiem samego etapu kompilacji i może służyć do diagnostyki:
+
+```bash
+export PATH=/usr/local/cuda/bin${PATH:+:${PATH}}
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+export CUDA_INC_DIR=/usr/local/cuda/include
+export CUDA_NDARRAY_CUDA_H=1
+
+python3 -m pip install --user --upgrade "pip<22" "setuptools<60" "wheel<0.38"
+python3 -m pip install --user "Cython==0.29.36" numpy
+python3 -m pip install --user --no-cache-dir \
+  --global-option=build_ext \
+  --global-option="-I/usr/local/cuda/include" \
+  --global-option="-L/usr/local/cuda/lib64" \
+  "pycuda==2022.1"
+python3 -c "import pycuda.driver as cuda; print('Wersja CUDA:', cuda.get_version())"
+```
+
+Nie uruchamiaj `sudo pip3`: pakiety Pythona są instalowane dla użytkownika, pod którym działa później usługa.
 
 ## 5. Sprawdź każde urządzenie
 
