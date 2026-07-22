@@ -59,6 +59,8 @@ nano config/config.json
 
 Uruchom bootstrap jako zwykły użytkownik, bez `sudo` przed nazwą skryptu. Skrypt sam używa `sudo` tylko do instalacji pakietów i konfiguracji systemowej. Można go bezpiecznie uruchamiać ponownie: instaluje tylko brakujące pakiety APT, sprawdza obecność i zgodność pakietów Pythona, nie kompiluje ponownie działającego PyCUDA, nie pobiera istniejących modeli oraz nie kopiuje niezmienionej reguły udev.
 
+Na tym etapie `diagnose.sh` może pokazać `PENDING` przy `libmyplugins.so` i `yolov5n.engine`. To oczekiwany stan: nie są one pobierane przez bootstrap, lecz tworzone lokalnie w kroku 6 przez `scripts/build_yolo.sh`. `WARN` przy kamerze oznacza natomiast, że system nie widzi urządzenia `/dev/video*` i wymaga to sprawdzenia połączenia lub portu.
+
 Bootstrap nie instaluje `python3-pycuda`, ponieważ ten pakiet nie ma kandydata w części obrazów JetPack 4.6.1. Zamiast tego:
 
 - instaluje `python3-pip`, nagłówki Pythona, kompilator i biblioteki Boost;
@@ -129,16 +131,14 @@ Obraz po obróbce zostaje w `tmp/page_prepared.png`.
 
 ## 6. Zbuduj YOLOv5n TensorRT
 
-Konwersja wag wymaga PyTorch. Dla JetPack 4.x i Pythona 3.6 zainstaluj końcową zgodną wersję 1.10 z [ogłoszenia na forum NVIDIA](https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048/1276):
+Konwersja wag wymaga PyTorch 1.10, zgodnego torchvision 0.11.1 oraz modułów używanych przez zewnętrzny konwerter. Dla JetPack 4.x i Pythona 3.6 uruchom osobny instalator zależności:
 
 ```bash
-sudo apt-get install -y libopenblas-dev libopenmpi-dev
-python3 -m pip install --user --upgrade "pip<22"
-wget -O /tmp/torch-1.10.0-cp36-cp36m-linux_aarch64.whl \
-  https://nvidia.box.com/shared/static/fjtbno0vpo676a25cgvuqc1wty0fkkg6.whl
-python3 -m pip install --user /tmp/torch-1.10.0-cp36-cp36m-linux_aarch64.whl
-python3 -c "import torch; print(torch.__version__)"
+bash ./scripts/install_yolo_build_deps.sh
+python3 -c "import torch, torchvision; print(torch.__version__, torchvision.__version__)"
 ```
+
+Instalator pomija działający PyTorch 1.10.0. Jeśli brakuje torchvision, pobiera oficjalne źródła w wersji 0.11.1 i buduje je lokalnie dla Jetsona; ten etap może potrwać kilkadziesiąt minut. Zgodność pary PyTorch 1.10 / torchvision 0.11 jest opisana przez [projekt torchvision](https://github.com/pytorch/vision), a koło PyTorch dla JetPack 4 / Pythona 3.6 pochodzi z [ogłoszenia NVIDIA](https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048/1276).
 
 Zbuduj silnik na docelowym Nano:
 
@@ -152,6 +152,12 @@ Skrypt pobiera `mailrocketsystems/JetsonYolov5`, konwertuje dołączone wagi, ko
 
 ```bash
 BUILD_JOBS=1 ./scripts/build_yolo.sh
+```
+
+Jeżeli oba artefakty już istnieją, skrypt pomija ponowną kompilację. Wymuszenie pełnej przebudowy:
+
+```bash
+FORCE_REBUILD=1 ./scripts/build_yolo.sh
 ```
 
 Nie kopiuj silnika z innej wersji CUDA/TensorRT/GPU; po zmianie stosu zbuduj go ponownie. Zewnętrzny wrapper ma licencję GPL-3.0 i pozostaje osobnym, ignorowanym checkoutem — sprawdź warunki przed redystrybucją.

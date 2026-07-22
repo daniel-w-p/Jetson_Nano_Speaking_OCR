@@ -3,12 +3,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$ROOT/vendor/JetsonYolov5"
+PLUGIN="$REPO/yolov5/build/libmyplugins.so"
+ENGINE="$REPO/yolov5/build/yolov5n.engine"
 
-if ! python3 -c 'import torch' >/dev/null 2>&1; then
+if [[ -f "$PLUGIN" && -f "$ENGINE" && "${FORCE_REBUILD:-0}" != "1" ]]; then
+  echo "YOLO/TensorRT artifacts are already built; skipping."
+  echo "Use FORCE_REBUILD=1 $0 to rebuild them."
+  exit 0
+fi
+
+if ! python3 -c 'import torch, torchvision, cv2, numpy, pandas, requests, yaml, PIL, scipy, psutil, tqdm, seaborn, imutils' >/dev/null 2>&1; then
   cat >&2 <<'EOF'
-PyTorch is required only to convert yolov5n.pt to .wts.
-Install the JetPack 4 / Python 3.6 wheel described in docs/SD_CARD_SETUP.md,
-then run this script again.
+One or more YOLO build dependencies are missing or incompatible.
+Run: bash ./scripts/install_yolo_build_deps.sh
+Then run this script again.
 EOF
   exit 1
 fi
@@ -27,4 +35,4 @@ cmake ..
 make -j"${BUILD_JOBS:-2}"
 ./yolov5_det -s yolov5n.wts yolov5n.engine n
 
-echo "TensorRT engine ready: $REPO/yolov5/build/yolov5n.engine"
+echo "TensorRT engine ready: $ENGINE"

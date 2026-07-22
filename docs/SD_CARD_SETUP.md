@@ -60,6 +60,8 @@ sudo jetson_clocks
 
 Run the bootstrap as the regular login user, without putting `sudo` before the script name. It requests `sudo` only for package installation and system configuration and can safely be run again: it installs only missing APT packages, checks Python package presence and compatibility, does not rebuild an importable PyCUDA, does not redownload existing models and does not replace an unchanged udev rule.
 
+At this stage, `diagnose.sh` may report `PENDING` for `libmyplugins.so` and `yolov5n.engine`. This is expected: bootstrap does not download them; `scripts/build_yolo.sh` generates them locally in step 6. A camera `WARN`, on the other hand, means the system cannot see a `/dev/video*` device and the connection or port needs attention.
+
 The bootstrap does not install `python3-pycuda`, because that package has no installation candidate on some JetPack 4.6.1 images. Instead, it:
 
 - installs `python3-pip`, Python headers, the compiler toolchain and Boost libraries;
@@ -140,16 +142,14 @@ The processed frame is kept as `tmp/page_prepared.png` for diagnosis.
 
 ## 6. Build YOLOv5n TensorRT
 
-The conversion script in the selected YOLO wrapper imports PyTorch. For JetPack 4.x/Python 3.6, install the final compatible NVIDIA community wheel, PyTorch 1.10. The source announcement is the [NVIDIA Jetson forum post](https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048/1276); the linked wheel is:
+The external conversion script requires PyTorch 1.10, its matching torchvision 0.11.1 and supporting Python modules. On JetPack 4.x/Python 3.6, run the separate build-dependency installer:
 
 ```bash
-sudo apt-get install -y libopenblas-dev libopenmpi-dev
-python3 -m pip install --user --upgrade "pip<22"
-wget -O /tmp/torch-1.10.0-cp36-cp36m-linux_aarch64.whl \
-  https://nvidia.box.com/shared/static/fjtbno0vpo676a25cgvuqc1wty0fkkg6.whl
-python3 -m pip install --user /tmp/torch-1.10.0-cp36-cp36m-linux_aarch64.whl
-python3 -c "import torch; print(torch.__version__)"
+bash ./scripts/install_yolo_build_deps.sh
+python3 -c "import torch, torchvision; print(torch.__version__, torchvision.__version__)"
 ```
+
+The installer skips an importable PyTorch 1.10.0. If torchvision is missing, it checks out the official v0.11.1 source and builds it locally for the Jetson; this can take tens of minutes. The PyTorch 1.10 / torchvision 0.11 compatibility is documented by the [torchvision project](https://github.com/pytorch/vision), and the JetPack 4 / Python 3.6 PyTorch wheel comes from the [NVIDIA announcement](https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048/1276).
 
 Build the engine on the target Nano:
 
@@ -163,6 +163,12 @@ The script clones `mailrocketsystems/JetsonYolov5`, converts the included YOLOv5
 
 ```bash
 BUILD_JOBS=1 ./scripts/build_yolo.sh
+```
+
+If both generated artifacts already exist, the script skips rebuilding them. To force a full rebuild, run:
+
+```bash
+FORCE_REBUILD=1 ./scripts/build_yolo.sh
 ```
 
 Do not copy an engine built for a different TensorRT/CUDA/GPU stack. Rebuild it after relevant JetPack/TensorRT changes. The external wrapper is GPL-3.0 and remains a separate ignored checkout; review its license for redistribution.
