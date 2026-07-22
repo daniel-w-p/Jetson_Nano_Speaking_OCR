@@ -57,7 +57,7 @@ Profil `nvpmodel -m 0` to 10 W na Nano. Użyj go podczas instalacji i testów z 
 nano config/config.json
 ```
 
-Uruchom bootstrap jako zwykły użytkownik, bez `sudo` przed nazwą skryptu. Skrypt sam używa `sudo` tylko do instalacji pakietów i konfiguracji systemowej. Można go bezpiecznie uruchamiać ponownie.
+Uruchom bootstrap jako zwykły użytkownik, bez `sudo` przed nazwą skryptu. Skrypt sam używa `sudo` tylko do instalacji pakietów i konfiguracji systemowej. Można go bezpiecznie uruchamiać ponownie: instaluje tylko brakujące pakiety APT, sprawdza obecność i zgodność pakietów Pythona, nie kompiluje ponownie działającego PyCUDA, nie pobiera istniejących modeli oraz nie kopiuje niezmienionej reguły udev.
 
 Bootstrap nie instaluje `python3-pycuda`, ponieważ ten pakiet nie ma kandydata w części obrazów JetPack 4.6.1. Zamiast tego:
 
@@ -82,7 +82,8 @@ export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PAT
 export CUDA_INC_DIR=/usr/local/cuda/include
 export CUDA_NDARRAY_CUDA_H=1
 
-python3 -m pip install --user --upgrade "pip<22" "setuptools<60" "wheel<0.38"
+python3 -m pip install --user --upgrade \
+  "pip>=21.3,<22" "setuptools>=59,<60" "wheel>=0.37,<0.38"
 python3 -m pip install --user "Cython==0.29.36" numpy
 python3 -m pip install --user --no-cache-dir \
   --global-option=build_ext \
@@ -177,12 +178,13 @@ Użyj dwóch przycisków chwilowych NO. Program włącza wewnętrzne podciągani
 python3 -m pip install --user "Jetson.GPIO==2.1.6"
 sudo groupadd -f -r gpio
 sudo usermod -a -G gpio "$USER"
-GPIO_RULE="$(python3 -c 'import Jetson.GPIO, os; print(os.path.join(os.path.dirname(Jetson.GPIO.__file__), "99-gpio.rules"))')"
+GPIO_SITE="$(python3 -m pip show Jetson.GPIO | sed -n 's/^Location: //p')"
+GPIO_RULE="$GPIO_SITE/Jetson/GPIO/99-gpio.rules"
 sudo cp "$GPIO_RULE" /etc/udev/rules.d/99-gpio.rules
 sudo reboot
 ```
 
-Skrypt `bootstrap_jetson.sh` wykonał już instalację biblioteki, reguły udev i grupy; powyższe polecenia są potrzebne tylko wtedy, gdy ten krok pominięto. Restart uaktywnia nowe członkostwo w grupie.
+Nie importuj `Jetson.GPIO`, aby znaleźć plik reguł przed wykonaniem tych poleceń. Moduł sprawdza dostęp do `/dev/gpiochip0` już podczas importu, więc przed skonfigurowaniem grupy i udev zakończy się błędem uprawnień. Skrypt `bootstrap_jetson.sh` wykonuje już instalację biblioteki, reguły udev i grupy; powyższe polecenia są potrzebne tylko wtedy, gdy ten krok pominięto. Restart uaktywnia nowe członkostwo w grupie.
 
 W `config/config.json` ustaw `gpio.enabled` na `true`, zweryfikuj piny i uruchom test:
 

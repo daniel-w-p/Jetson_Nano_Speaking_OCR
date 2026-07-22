@@ -58,7 +58,7 @@ sudo jetson_clocks
 ./scripts/diagnose.sh
 ```
 
-Run the bootstrap as the regular login user, without putting `sudo` before the script name. It requests `sudo` only for package installation and system configuration and can safely be run again.
+Run the bootstrap as the regular login user, without putting `sudo` before the script name. It requests `sudo` only for package installation and system configuration and can safely be run again: it installs only missing APT packages, checks Python package presence and compatibility, does not rebuild an importable PyCUDA, does not redownload existing models and does not replace an unchanged udev rule.
 
 The bootstrap does not install `python3-pycuda`, because that package has no installation candidate on some JetPack 4.6.1 images. Instead, it:
 
@@ -83,7 +83,8 @@ export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PAT
 export CUDA_INC_DIR=/usr/local/cuda/include
 export CUDA_NDARRAY_CUDA_H=1
 
-python3 -m pip install --user --upgrade "pip<22" "setuptools<60" "wheel<0.38"
+python3 -m pip install --user --upgrade \
+  "pip>=21.3,<22" "setuptools>=59,<60" "wheel>=0.37,<0.38"
 python3 -m pip install --user "Cython==0.29.36" numpy
 python3 -m pip install --user --no-cache-dir \
   --global-option=build_ext \
@@ -190,10 +191,13 @@ The bootstrap already installed Jetson.GPIO, copied its udev permissions rule an
 python3 -m pip install --user "Jetson.GPIO==2.1.6"
 sudo groupadd -f -r gpio
 sudo usermod -a -G gpio "$USER"
-GPIO_RULE="$(python3 -c 'import Jetson.GPIO, os; print(os.path.join(os.path.dirname(Jetson.GPIO.__file__), "99-gpio.rules"))')"
+GPIO_SITE="$(python3 -m pip show Jetson.GPIO | sed -n 's/^Location: //p')"
+GPIO_RULE="$GPIO_SITE/Jetson/GPIO/99-gpio.rules"
 sudo cp "$GPIO_RULE" /etc/udev/rules.d/99-gpio.rules
 sudo reboot
 ```
+
+Do not import `Jetson.GPIO` to locate the rule before running these commands. The module checks access to `/dev/gpiochip0` during import, so it raises a permissions error until the group and udev rule have been configured. The commands are only a manual fallback; the bootstrap performs these steps itself.
 
 Enable GPIO in `config/config.json` and test in the foreground:
 

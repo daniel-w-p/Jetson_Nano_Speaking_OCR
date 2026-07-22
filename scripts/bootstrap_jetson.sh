@@ -17,13 +17,28 @@ if [[ "$EUID" -eq 0 ]]; then
   exit 1
 fi
 
-sudo apt-get update
-sudo apt-get install -y \
-  alsa-utils build-essential cmake curl fswebcam git htop nano \
-  python3-dev python3-numpy python3-opencv python3-pip \
-  tesseract-ocr tesseract-ocr-pol v4l-utils wget \
-  gfortran libblas-dev libfreetype6-dev libjpeg-dev liblapack-dev \
+APT_PACKAGES=(
+  alsa-utils build-essential cmake curl fswebcam git htop nano
+  python3-dev python3-numpy python3-opencv python3-pip
+  tesseract-ocr tesseract-ocr-pol v4l-utils wget
+  gfortran libblas-dev libfreetype6-dev libjpeg-dev liblapack-dev
   libboost-all-dev libopenblas-base libopenblas-dev libopenmpi-dev zlib1g-dev
+)
+
+MISSING_APT_PACKAGES=()
+for package in "${APT_PACKAGES[@]}"; do
+  if ! dpkg-query -W -f='${Status}\n' "$package" 2>/dev/null | grep -Fxq 'install ok installed'; then
+    MISSING_APT_PACKAGES+=("$package")
+  fi
+done
+
+if (( ${#MISSING_APT_PACKAGES[@]} > 0 )); then
+  echo "Installing missing APT packages: ${MISSING_APT_PACKAGES[*]}"
+  sudo apt-get update
+  sudo apt-get install -y "${MISSING_APT_PACKAGES[@]}"
+else
+  echo "All required APT packages are already installed; skipping APT."
+fi
 
 if [[ ! -d /usr/local/cuda/include || ! -d /usr/local/cuda/lib64 ]]; then
   echo "CUDA toolkit not found under /usr/local/cuda." >&2
@@ -49,10 +64,22 @@ nvcc --version
 
 # JetPack 4.6.1 uses Python 3.6. Build the last PyCUDA line supporting it
 # instead of relying on the unavailable python3-pycuda APT package.
-python3 -m pip install --user --upgrade \
-  "pip<22" "setuptools<60" "wheel<0.38"
-python3 -m pip install --user "Cython==0.29.36" numpy
-if ! python3 -c 'import pycuda.driver' >/dev/null 2>&1; then
+if python3 -c 'import pkg_resources; pkg_resources.require(["pip>=21.3,<22", "setuptools>=59,<60", "wheel>=0.37,<0.38"])' >/dev/null 2>&1; then
+  echo "Compatible pip, setuptools and wheel are already installed; skipping."
+else
+  python3 -m pip install --user --upgrade \
+    "pip>=21.3,<22" "setuptools>=59,<60" "wheel>=0.37,<0.38"
+fi
+
+if python3 -c 'import Cython, numpy; raise SystemExit(Cython.__version__ != "0.29.36")' >/dev/null 2>&1; then
+  echo "Cython 0.29.36 and NumPy are already installed; skipping."
+else
+  python3 -m pip install --user "Cython==0.29.36" numpy
+fi
+
+if python3 -c 'import pycuda.driver' >/dev/null 2>&1; then
+  echo "PyCUDA is already installed and importable; skipping compilation."
+else
   python3 -m pip install --user --no-cache-dir \
     --global-option=build_ext \
     --global-option="-I${CUDA_INC_DIR}" \
@@ -61,14 +88,41 @@ if ! python3 -c 'import pycuda.driver' >/dev/null 2>&1; then
 fi
 python3 -c "import pycuda.driver as cuda; print('CUDA version:', cuda.get_version())"
 
-# Optional at runtime, but pinned here so the same image is ready for button control.
-python3 -m pip install --user "Jetson.GPIO==2.1.6"
-GPIO_RULE="$(python3 -c 'import Jetson.GPIO, os; print(os.path.join(os.path.dirname(Jetson.GPIO.__file__), "99-gpio.rules"))')"
+# Do not import Jetson.GPIO before its udev rule and group are configured: the
+# module checks /dev/gpiochip0 permissions during import and would abort here.
+if python3 -c 'import pkg_resources; raise SystemExit(pkg_resources.get_distribution("Jetson.GPIO").version != "2.1.6")' >/dev/null 2>&1; then
+  echo "Jetson.GPIO 2.1.6 is already installed; skipping package installation."
+else
+  python3 -m pip install --user "Jetson.GPIO==2.1.6"
+fi
+
+GPIO_SITE="$(python3 -m pip show Jetson.GPIO | sed -n 's/^Location: //p')"
+GPIO_RULE="$GPIO_SITE/Jetson/GPIO/99-gpio.rules"
+if [[ -z "$GPIO_SITE" || ! -f "$GPIO_RULE" ]]; then
+  echo "Jetson.GPIO udev rule was not found after package installation." >&2
+  exit 1
+fi
+
 sudo groupadd -f -r gpio
-sudo usermod -a -G gpio "$USER"
-sudo cp "$GPIO_RULE" /etc/udev/rules.d/99-gpio.rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+if id -nG "$USER" | tr ' ' '\n' | grep -Fxq gpio; then
+  echo "User $USER is already a member of the gpio group."
+else
+  sudo usermod -a -G gpio "$USER"
+fi
+
+GPIO_RULE_TARGET=/etc/udev/rules.d/99-gpio.rules
+if sudo cmp -s "$GPIO_RULE" "$GPIO_RULE_TARGET"; then
+  echo "Jetson.GPIO udev rule is already current."
+else
+  sudo cp "$GPIO_RULE" "$GPIO_RULE_TARGET"
+  sudo udevadm control --reload-rules
+  sudo udevadm trigger
+fi
+
+if [[ ! -e /dev/gpiochip0 ]]; then
+  echo "Warning: /dev/gpiochip0 is not present; verify the Jetson kernel/device tree." >&2
+fi
+echo "GPIO permissions configured. Reboot before importing Jetson.GPIO."
 
 mkdir -p "$ROOT/bin" "$ROOT/models/piper" "$ROOT/tmp" "$ROOT/vendor"
 if [[ ! -f "$ROOT/config/config.json" ]]; then
