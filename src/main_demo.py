@@ -2,21 +2,27 @@
 
 import argparse
 import signal
-import sys
-import time
 import traceback
 
+from camera import CameraSession
+from config import load_config
 from describe_once import describe_once
 from read_page import read_once
-from say import say
+from say import say, shutdown_speech
+from yolo_session import YoloSession
 
 
-def run_action(action):
+def run_action(action, camera_session=None, yolo_session=None):
     try:
         if action == "describe":
-            return describe_once()
+            return describe_once(
+                camera_session=camera_session,
+                yolo_session=yolo_session,
+            )
         if action == "read":
-            return read_once()
+            if yolo_session is not None:
+                yolo_session.stop()
+            return read_once(camera_session=camera_session)
         raise ValueError("Unknown action: {0}".format(action))
     except Exception as error:
         traceback.print_exc()
@@ -27,21 +33,20 @@ def run_action(action):
         return None
 
 
-def keyboard_loop():
+def keyboard_loop(camera_session, yolo_session):
     say("Asystent gotowy. Naciśnij jeden, aby opisać obraz, albo dwa, aby przeczytać kartkę.")
     while True:
         command = input("1=describe, 2=read, q=quit: ").strip().lower()
         if command == "1":
-            run_action("describe")
+            run_action("describe", camera_session, yolo_session)
         elif command == "2":
-            run_action("read")
+            run_action("read", camera_session, yolo_session)
         elif command == "q":
             say("Kończę działanie.")
             return
 
 
-def gpio_loop():
-    from config import load_config
+def gpio_loop(camera_session, yolo_session):
     try:
         import Jetson.GPIO as GPIO
     except ImportError:
@@ -60,7 +65,7 @@ def gpio_loop():
             return
         busy[0] = True
         try:
-            run_action(pins[channel])
+            run_action(pins[channel], camera_session, yolo_session)
         finally:
             busy[0] = False
 
@@ -81,12 +86,21 @@ def main():
     parser.add_argument("--mode", choices=("keyboard", "gpio"), default="keyboard")
     parser.add_argument("--action", choices=("describe", "read"))
     args = parser.parse_args()
-    if args.action:
-        run_action(args.action)
-    elif args.mode == "gpio":
-        gpio_loop()
-    else:
-        keyboard_loop()
+    config = load_config()
+    camera_session = CameraSession(config["camera"])
+    yolo_session = YoloSession()
+    try:
+        camera_session.start()
+        if args.action:
+            run_action(args.action, camera_session, yolo_session)
+        elif args.mode == "gpio":
+            gpio_loop(camera_session, yolo_session)
+        else:
+            keyboard_loop(camera_session, yolo_session)
+    finally:
+        yolo_session.stop()
+        camera_session.close()
+        shutdown_speech()
 
 
 if __name__ == "__main__":

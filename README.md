@@ -16,7 +16,8 @@ Read:     camera → OpenCV → Tesseract (pol) → Piper → speaker
 - Fully local after installation; no cloud inference or speech service.
 - Operated over SSH/keyboard or with two GPIO buttons.
 - Designed around the constraints of JetPack 4.6.1, Ubuntu 18.04 and Python 3.6.
-- Uses one workload at a time to fit within the Nano's 4 GB RAM.
+- Keeps the camera stream and Piper voice loaded for the session to avoid repeated USB wake-ups and model reloads.
+- Runs TensorRT YOLO in an isolated process: consecutive descriptions reuse it, while selecting OCR stops it and releases CUDA memory.
 
 > This is an assistive **demonstrator**, not a certified mobility or safety device. Detection and OCR can be wrong; do not rely on it for navigation, traffic, medication or other safety-critical decisions.
 
@@ -62,7 +63,7 @@ python3 src/main_demo.py --mode keyboard
 
 ## Configuration
 
-The bootstrap copies `config/config.example.json` to the ignored, device-local `config/config.json`. Edit it to select the camera index, ALSA device, thresholds, model paths and GPIO pins.
+The bootstrap copies `config/config.example.json` to the ignored, device-local `config/config.json`. Edit it to select the camera index, UVC pixel format/FPS, ALSA device, thresholds, model paths and GPIO pins. The default camera session explicitly negotiates `MJPG`, 1280×720 at 15 FPS, discards 30 warm-up frames and continuously retains the newest frame.
 
 For a USB speaker, find the ALSA identifier with `aplay -l`, then set for example:
 
@@ -113,7 +114,7 @@ Common issues:
 
 - `No frame received`: change `camera.device` after checking `v4l2-ctl --list-devices`.
 - Silence or wrong output: set `speech.aplay_device`; check mute and gain in `alsamixer`.
-- Poor OCR: fill the frame, avoid glare, use even light and keep the page parallel to the camera.
+- Poor OCR: compare `tmp/page_raw.jpg` with `tmp/page_prepared.png`, fill the frame, avoid glare, use even light and keep the page parallel to the camera.
 - Build killed: confirm swap is active and rerun `BUILD_JOBS=1 ./scripts/build_yolo.sh`.
 - Sudden resets or throttling: use `tegrastats`; improve the 5 V supply and cooling.
 

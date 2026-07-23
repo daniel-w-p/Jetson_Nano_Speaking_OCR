@@ -17,7 +17,10 @@ DEFAULTS = {
         "device": 0,
         "capture_width": 1280,
         "capture_height": 720,
-        "warmup_frames": 10,
+        "pixel_format": "MJPG",
+        "fps": 15,
+        "warmup_frames": 30,
+        "frame_timeout_seconds": 6.0,
     },
     "ocr": {"language": "pol", "page_segmentation_mode": 6, "max_characters": 700},
     "speech": {

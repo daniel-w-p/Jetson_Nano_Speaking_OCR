@@ -1,32 +1,25 @@
-"""Run one TensorRT scene detection and speak the result."""
-
-import sys
+"""Run one isolated TensorRT scene detection and speak the result."""
 
 from camera import capture_frame, resize_to_width
-from config import PROJECT_ROOT, load_config, project_path
+from config import load_config
 from say import say
 from scene import describe
+from yolo_session import YoloSession
 
 
-def describe_once(speak=True):
+def describe_once(speak=True, camera_session=None, yolo_session=None):
     config = load_config()
     settings = config["yolo"]
-    vendor = PROJECT_ROOT / "vendor" / "JetsonYolov5"
-    sys.path.insert(0, str(vendor))
-    from yoloDet import YoloTRT
-
-    plugin = project_path(settings["plugin"])
-    engine = project_path(settings["engine"])
-    for required in (plugin, engine):
-        if not required.exists():
-            raise RuntimeError("Missing YOLO artifact: {0}".format(required))
-    model = YoloTRT(
-        library=str(plugin), engine=str(engine),
-        conf=float(settings["confidence"]), yolo_ver="v5"
-    )
-    frame = capture_frame(config["camera"])
+    if camera_session is None:
+        frame = capture_frame(config["camera"])
+    else:
+        frame = camera_session.capture_frame()
     frame = resize_to_width(frame, int(settings["input_width"]))
-    detections, _inference_time = model.Inference(frame)
+    if yolo_session is None:
+        with YoloSession() as temporary_yolo:
+            detections, _inference_time = temporary_yolo.infer(frame)
+    else:
+        detections, _inference_time = yolo_session.infer(frame)
     text = describe(detections, float(settings["confidence"]), int(settings["max_objects"]))
     if speak:
         say(text)

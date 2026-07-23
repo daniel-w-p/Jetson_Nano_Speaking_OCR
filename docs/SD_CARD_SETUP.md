@@ -123,7 +123,7 @@ ls -l /dev/video*
 fswebcam -r 1280x720 --no-banner tmp/camera.jpg
 ```
 
-Open `tmp/camera.jpg` over SFTP or temporarily on the desktop. If the camera is not `/dev/video0`, change `camera.device` in `config/config.json`. The included capture code is for UVC/V4L2; a CSI camera needs an appropriate GStreamer pipeline.
+Open `tmp/camera.jpg` over SFTP or temporarily on the desktop. If the camera is not `/dev/video0`, change `camera.device` in `config/config.json`. The included capture code is for UVC/V4L2; a CSI camera needs an appropriate GStreamer pipeline. The defaults request `MJPG`, 1280×720 at 15 FPS and keep the stream open for the integrated session. Adjust `pixel_format`, `fps`, `warmup_frames` or `frame_timeout_seconds` only to modes reported by `v4l2-ctl --list-formats-ext`.
 
 ### Audio
 
@@ -149,7 +149,7 @@ Place a well-lit printed page parallel to the camera:
 python3 src/main_demo.py --action read
 ```
 
-The processed frame is kept as `tmp/page_prepared.png` for diagnosis.
+The original frame is kept as `tmp/page_raw.jpg`, and the thresholded OCR input as `tmp/page_prepared.png`.
 
 ## 6. Build YOLOv5n TensorRT
 
@@ -191,7 +191,7 @@ python3 -m unittest discover -s tests -v
 python3 src/main_demo.py --mode keyboard
 ```
 
-Press `1` to describe one frame, `2` to read a page and `q` to exit. Do not proceed to GPIO until both actions reliably return to the prompt.
+Press `1` to describe one frame, `2` to read a page and `q` to exit. The camera stream and Piper process remain active for the session. Consecutive `1` actions reuse one isolated YOLO worker; selecting `2` stops that worker and releases its CUDA/TensorRT resources before OCR. `aplay` and Tesseract remain short-lived processes. Do not proceed to GPIO until both actions reliably return to the prompt.
 
 ## 8. Add two GPIO buttons
 

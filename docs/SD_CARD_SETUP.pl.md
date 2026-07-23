@@ -118,7 +118,7 @@ ls -l /dev/video*
 fswebcam -r 1280x720 --no-banner tmp/camera.jpg
 ```
 
-Obejrzyj zdjęcie przez SFTP lub tymczasowo w środowisku graficznym. Jeśli kamera nie jest `/dev/video0`, zmień `camera.device`. Kod obsługuje USB UVC/V4L2; kamera CSI wymaga odpowiedniego pipeline GStreamer.
+Obejrzyj zdjęcie przez SFTP lub tymczasowo w środowisku graficznym. Jeśli kamera nie jest `/dev/video0`, zmień `camera.device`. Kod obsługuje USB UVC/V4L2; kamera CSI wymaga odpowiedniego pipeline GStreamer. Domyślna konfiguracja żąda `MJPG`, 1280×720 przy 15 FPS i utrzymuje strumień przez całą zintegrowaną sesję. Parametry `pixel_format`, `fps`, `warmup_frames` i `frame_timeout_seconds` ustawiaj tylko na tryby zgłaszane przez `v4l2-ctl --list-formats-ext`.
 
 ### Dźwięk
 
@@ -138,7 +138,7 @@ python3 src/say.py
 python3 src/main_demo.py --action read
 ```
 
-Obraz po obróbce zostaje w `tmp/page_prepared.png`.
+Oryginalna klatka zostaje w `tmp/page_raw.jpg`, a progowany obraz wejściowy OCR w `tmp/page_prepared.png`.
 
 ## 6. Zbuduj YOLOv5n TensorRT
 
@@ -180,7 +180,7 @@ python3 -m unittest discover -s tests -v
 python3 src/main_demo.py --mode keyboard
 ```
 
-`1` opisuje pojedynczą klatkę, `2` czyta kartkę, `q` kończy. Nie przechodź do GPIO, dopóki oba działania nie wracają niezawodnie do promptu.
+`1` opisuje pojedynczą klatkę, `2` czyta kartkę, `q` kończy. Strumień kamery i proces Pipera pozostają aktywne przez całą sesję. Kolejne akcje `1` używają tego samego izolowanego procesu YOLO; wybór `2` kończy go i zwalnia zasoby CUDA/TensorRT przed OCR. `aplay` i Tesseract pozostają procesami jednorazowymi. Nie przechodź do GPIO, dopóki oba działania nie wracają niezawodnie do promptu.
 
 ## 8. Dwa przyciski GPIO
 

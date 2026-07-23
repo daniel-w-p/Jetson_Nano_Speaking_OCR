@@ -38,12 +38,16 @@ def ocr_image(path, settings):
     return result.stdout.strip()
 
 
-def read_once(speak=True):
+def read_once(speak=True, camera_session=None):
     config = load_config()
     runtime = ensure_runtime_dir()
     if speak:
         say("Robię zdjęcie kartki.")
-    frame = capture_frame(config["camera"])
+    if camera_session is None:
+        frame = capture_frame(config["camera"])
+    else:
+        frame = camera_session.capture_frame()
+    cv2.imwrite(str(runtime / "page_raw.jpg"), frame)
     prepared = preprocess_for_ocr(frame)
     image_path = runtime / "page_prepared.png"
     cv2.imwrite(str(image_path), prepared)

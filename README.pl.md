@@ -14,7 +14,8 @@ Czytanie: kamera → OpenCV → Tesseract (pol) → Piper → głośnik
 - Po instalacji działa całkowicie lokalnie.
 - Obsługa przez SSH/klawiaturę albo dwa przyciski GPIO.
 - Zgodność ze starym stosem JetPack 4.6.1, Ubuntu 18.04 i Python 3.6.
-- Zadania są uruchamiane pojedynczo, aby zmieścić się w 4 GB RAM.
+- Kamera i model Pipera pozostają aktywne przez całą sesję, co eliminuje ciągłe wybudzanie USB i przeładowywanie głosu.
+- TensorRT YOLO działa w osobnym procesie: kolejne opisy używają go ponownie, a wybór OCR kończy proces i zwalnia pamięć CUDA.
 
 > To demonstrator technologii wspomagającej, a nie certyfikowane urządzenie nawigacyjne lub bezpieczeństwa. Wyniki mogą być błędne; nie należy polegać na nich w ruchu drogowym, przy lekach ani w innych sytuacjach krytycznych.
 
@@ -55,7 +56,7 @@ python3 src/main_demo.py --mode keyboard
 
 ## Konfiguracja
 
-Skrypt startowy kopiuje `config/config.example.json` do ignorowanego przez Git pliku `config/config.json`. Można w nim zmienić indeks kamery, urządzenie ALSA, progi detekcji, ścieżki modeli i piny GPIO.
+Skrypt startowy kopiuje `config/config.example.json` do ignorowanego przez Git pliku `config/config.json`. Można w nim zmienić indeks kamery, format UVC/FPS, urządzenie ALSA, progi detekcji, ścieżki modeli i piny GPIO. Domyślna sesja kamery wymusza `MJPG`, 1280×720 przy 15 FPS, odrzuca 30 klatek rozgrzewkowych i stale przechowuje najnowszą klatkę.
 
 Identyfikator głośnika sprawdzisz poleceniem `aplay -l`. Przykład:
 
@@ -93,7 +94,7 @@ Najczęstsze problemy:
 
 - brak klatki: ustaw właściwe `camera.device` po `v4l2-ctl --list-devices`;
 - brak dźwięku: ustaw `speech.aplay_device` i sprawdź `alsamixer`;
-- słaby OCR: równomiernie oświetl kartkę, usuń odblaski, wypełnij nią kadr;
+- słaby OCR: porównaj `tmp/page_raw.jpg` z `tmp/page_prepared.png`, równomiernie oświetl kartkę, usuń odblaski i wypełnij nią kadr;
 - przerwana kompilacja: sprawdź swap i użyj `BUILD_JOBS=1 ./scripts/build_yolo.sh`;
 - resety lub throttling: uruchom `tegrastats`, popraw zasilanie i chłodzenie.
 
