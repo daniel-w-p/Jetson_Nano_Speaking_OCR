@@ -70,7 +70,18 @@ The bootstrap does not install `python3-pycuda`, because that package has no ins
 - builds PyCUDA 2022.1 from source against the CUDA 10.2 headers and libraries;
 - verifies that PyCUDA imports and reports the CUDA version.
 
-It then installs OpenCV, Tesseract with Polish data, ALSA and the remaining tools; downloads the archived ARM64 Piper binary and Polish `gosia-medium` voice; and creates the local configuration. After the first successful run, load the saved variables in the current terminal (new terminals do this automatically):
+It then installs OpenCV, Tesseract with Polish data, ALSA and the remaining tools; builds Piper locally on the Jetson, downloads the Polish `gosia-medium` voice and creates the local configuration. The official ARM64 Piper archive is not used because it requires newer glibc and `libstdc++` versions than JetPack 4.6.1's Ubuntu 18.04 provides. Do not replace or manually upgrade the system glibc. The native build links against the system versions and is installed under `bin/piper-jetson/`.
+
+If an earlier bootstrap downloaded the incompatible archive under `bin/piper/`, it can remain on disk—the application no longer uses it. The Piper stage can be safely resumed on its own:
+
+```bash
+bash ./scripts/build_piper_jetson.sh
+python3 src/say.py
+```
+
+The script installs GCC/G++ 8 and uses it instead of JetPack 4.6.1's default GCC 7. This is required for the C++17 `<filesystem>` header used by `piper-phonemize`. The dependency is built with `stdc++fs` in a separate `build-jetson-gcc8` directory, so an incomplete `build-jetson` directory left by an earlier attempt does not need to be removed. The script also bundles the `libucd.so` library omitted by the eSpeak install target, sets local library lookup paths and validates the result with `ldd`.
+
+The first build downloads sources and can take tens of minutes. Later runs skip a working output binary. After the first successful bootstrap, load the saved variables in the current terminal (new terminals do this automatically):
 
 ```bash
 source ~/.bashrc

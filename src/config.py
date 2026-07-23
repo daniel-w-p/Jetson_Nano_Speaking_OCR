@@ -20,7 +20,11 @@ DEFAULTS = {
         "warmup_frames": 10,
     },
     "ocr": {"language": "pol", "page_segmentation_mode": 6, "max_characters": 700},
-    "speech": {"voice": "pl_PL-gosia-medium.onnx", "aplay_device": ""},
+    "speech": {
+        "binary": "bin/piper-jetson/piper",
+        "voice": "pl_PL-gosia-medium.onnx",
+        "aplay_device": "",
+    },
     "yolo": {
         "confidence": 0.55,
         "input_width": 640,

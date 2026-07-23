@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PIPER_VERSION="2023.11.14-2"
 VOICE="pl_PL-gosia-medium"
 PYCUDA_VERSION="2022.1"
 
@@ -129,11 +128,11 @@ if [[ ! -f "$ROOT/config/config.json" ]]; then
   cp "$ROOT/config/config.example.json" "$ROOT/config/config.json"
 fi
 
-ARCHIVE="$ROOT/tmp/piper_linux_aarch64.tar.gz"
-if [[ ! -x "$ROOT/bin/piper/piper" ]]; then
-  wget -O "$ARCHIVE" \
-    "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_aarch64.tar.gz"
-  tar -xzf "$ARCHIVE" -C "$ROOT/bin"
+PIPER_BIN="$ROOT/bin/piper-jetson/piper"
+if [[ ! -x "$PIPER_BIN" ]] || ! "$PIPER_BIN" --help >/dev/null 2>&1; then
+  bash "$ROOT/scripts/build_piper_jetson.sh"
+else
+  echo "Jetson-compatible Piper is already installed; skipping source build."
 fi
 
 BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/pl/pl_PL/gosia/medium"
@@ -141,5 +140,12 @@ for suffix in onnx onnx.json; do
   target="$ROOT/models/piper/${VOICE}.${suffix}"
   [[ -f "$target" ]] || wget -O "$target" "$BASE/${VOICE}.${suffix}"
 done
+
+PIPER_TEST_WAV="$ROOT/tmp/piper-bootstrap-test.wav"
+printf '%s\n' "Test syntezy mowy." | \
+  "$PIPER_BIN" \
+    --model "$ROOT/models/piper/${VOICE}.onnx" \
+    --output_file "$PIPER_TEST_WAV"
+rm -f "$PIPER_TEST_WAV"
 
 echo "Bootstrap complete. Test with: python3 $ROOT/src/say.py"

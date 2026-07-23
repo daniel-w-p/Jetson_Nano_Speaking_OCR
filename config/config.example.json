@@ -11,6 +11,7 @@
     "max_characters": 700
   },
   "speech": {
+    "binary": "bin/piper-jetson/piper",
     "voice": "pl_PL-gosia-medium.onnx",
     "aplay_device": ""
   },

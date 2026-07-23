@@ -35,10 +35,17 @@ tesseract --list-langs 2>/dev/null | grep -x pol || echo "Polish OCR data missin
 
 echo "== Bootstrap artifacts =="
 for path in \
-  "$ROOT/bin/piper/piper" \
   "$ROOT/models/piper/pl_PL-gosia-medium.onnx"; do
   [[ -e "$path" ]] && echo "OK  $path" || echo "MISS $path"
 done
+
+PIPER_BIN="$ROOT/bin/piper-jetson/piper"
+if [[ -x "$PIPER_BIN" ]] && "$PIPER_BIN" --help >/dev/null 2>&1; then
+  echo "OK  $PIPER_BIN"
+else
+  echo "MISS Jetson-compatible Piper: $PIPER_BIN"
+  echo "NEXT Run: bash ./scripts/build_piper_jetson.sh"
+fi
 
 echo "== Generated YOLO/TensorRT artifacts =="
 YOLO_PLUGIN="$ROOT/vendor/JetsonYolov5/yolov5/build/libmyplugins.so"

@@ -18,7 +18,7 @@ def say(text):
         return
 
     settings = load_config()["speech"]
-    piper = PROJECT_ROOT / "bin" / "piper" / "piper"
+    piper = project_path(settings["binary"])
     model = PROJECT_ROOT / "models" / "piper" / settings["voice"]
     model_config = Path(str(model) + ".json")
     for required in (piper, model, model_config):

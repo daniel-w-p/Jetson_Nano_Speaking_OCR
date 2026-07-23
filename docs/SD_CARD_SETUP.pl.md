@@ -69,7 +69,18 @@ Bootstrap nie instaluje `python3-pycuda`, ponieważ ten pakiet nie ma kandydata 
 - buduje PyCUDA 2022.1 ze źródeł z nagłówkami i bibliotekami CUDA 10.2;
 - sprawdza import PyCUDA i zgłaszaną wersję CUDA.
 
-Następnie instaluje OpenCV, Tesseract z językiem polskim, ALSA i pozostałe narzędzia; pobiera archiwalny Piper ARM64 oraz głos `gosia-medium`; tworzy lokalną konfigurację. Po pierwszym poprawnym wykonaniu wczytaj zapisane zmienne w bieżącym terminalu (nowy terminal zrobi to automatycznie):
+Następnie instaluje OpenCV, Tesseract z językiem polskim, ALSA i pozostałe narzędzia; buduje Piper lokalnie na Jetsonie, pobiera głos `gosia-medium` i tworzy lokalną konfigurację. Oficjalne archiwum ARM64 Pipera nie jest używane: wymaga glibc i `libstdc++` nowszych niż dostępne w Ubuntu 18.04 z JetPack 4.6.1. Nie aktualizuj ręcznie systemowej glibc. Lokalny build używa wersji systemowych i trafia do `bin/piper-jetson/`.
+
+Jeżeli wcześniejszy bootstrap pobrał niezgodne archiwum do `bin/piper/`, może ono pozostać na dysku — aplikacja go nie używa. Sam etap Pipera można bezpiecznie wznowić poleceniem:
+
+```bash
+bash ./scripts/build_piper_jetson.sh
+python3 src/say.py
+```
+
+Skrypt instaluje GCC/G++ 8 i używa go zamiast domyślnego GCC 7 z JetPack 4.6.1. Jest to potrzebne dla nagłówka C++17 `<filesystem>` używanego przez `piper-phonemize`. Zależność jest budowana z `stdc++fs` w osobnym katalogu `build-jetson-gcc8`, więc nie trzeba usuwać niedokończonego katalogu `build-jetson` po wcześniejszej próbie. Skrypt dołącza też pomijaną przez instalator eSpeak bibliotekę `libucd.so`, ustawia lokalne ścieżki ładowania bibliotek i sprawdza wynik przez `ldd`.
+
+Pierwsza kompilacja pobiera źródła i może potrwać kilkadziesiąt minut. Kolejne uruchomienia pomijają działający plik wynikowy. Po pierwszym poprawnym bootstrapie wczytaj zapisane zmienne w bieżącym terminalu (nowy terminal zrobi to automatycznie):
 
 ```bash
 source ~/.bashrc
