@@ -8,7 +8,8 @@
 
 ```text
 Opis:    kamera → YOLOv5n → TensorRT → polski komunikat → Piper → głośnik
-Czytanie: kamera → OpenCV → Tesseract (pol) → Piper → głośnik
+Czytanie: kamera → szarość/Canny → kontury → korekcja perspektywy
+          → próg adaptacyjny → Tesseract (pol) → Piper → głośnik
 ```
 
 - Po instalacji działa całkowicie lokalnie.
@@ -16,6 +17,11 @@ Czytanie: kamera → OpenCV → Tesseract (pol) → Piper → głośnik
 - Zgodność ze starym stosem JetPack 4.6.1, Ubuntu 18.04 i Python 3.6.
 - Kamera i model Pipera pozostają aktywne przez całą sesję, co eliminuje ciągłe wybudzanie USB i przeładowywanie głosu.
 - TensorRT YOLO działa w osobnym procesie: kolejne opisy używają go ponownie, a wybór OCR kończy proces i zwalnia pamięć CUDA.
+
+OCR szuka największego, odpowiednio dużego i wypukłego czworokąta, porządkuje
+jego narożniki i prostuje kartkę w pełnej rozdzielczości. Jeśli nie widzi całej
+kartki albo transformacja się nie powiedzie, bezpiecznie przetwarza całą klatkę
+i nadal uruchamia Tesseract.
 
 > To demonstrator technologii wspomagającej, a nie certyfikowane urządzenie nawigacyjne lub bezpieczeństwa. Wyniki mogą być błędne; nie należy polegać na nich w ruchu drogowym, przy lekach ani w innych sytuacjach krytycznych.
 
@@ -56,7 +62,42 @@ python3 src/main_demo.py --mode keyboard
 
 ## Konfiguracja
 
-Skrypt startowy kopiuje `config/config.example.json` do ignorowanego przez Git pliku `config/config.json`. Można w nim zmienić indeks kamery, format UVC/FPS, urządzenie ALSA, progi detekcji, ścieżki modeli i piny GPIO. Domyślna sesja kamery wymusza `MJPG`, 1280×720 przy 15 FPS, odrzuca 30 klatek rozgrzewkowych i stale przechowuje najnowszą klatkę.
+Skrypt startowy kopiuje `config/config.example.json` do ignorowanego przez Git pliku `config/config.json`. Można w nim zmienić indeks kamery, format UVC/FPS, urządzenie ALSA, parametry OCR, próg YOLO, ścieżki modeli i piny GPIO. Domyślna sesja kamery wymusza `MJPG`, 1280×720 przy 15 FPS, odrzuca 30 klatek rozgrzewkowych i stale przechowuje najnowszą klatkę.
+
+Istniejący lokalny `config.json` nie wymaga migracji. Program głęboko łączy go
+z wartościami domyślnymi, więc brak nowych kluczy OCR jest automatycznie
+uzupełniany. Pełny zestaw znajduje się w
+[`config/config.example.json`](config/config.example.json):
+
+```json
+"ocr": {
+  "language": "pol",
+  "page_segmentation_mode": 6,
+  "max_characters": 700,
+  "scale_factor": 1.6,
+  "threshold_block_size": 31,
+  "threshold_c": 11,
+  "page_detection": {
+    "enabled": true,
+    "max_width": 800,
+    "blur_kernel": 5,
+    "canny_low": 50,
+    "canny_high": 150,
+    "contour_candidates": 10,
+    "approx_epsilon_ratio": 0.02,
+    "min_page_area_ratio": 0.20,
+    "debug_images": false
+  }
+}
+```
+
+- `max_width` ogranicza tylko kopię używaną do Canny i konturów; właściwa
+  transformacja korzysta z pełnej klatki.
+- `min_page_area_ratio` określa minimalną część obrazu zajmowaną przez kartkę.
+- `approx_epsilon_ratio` steruje przybliżaniem konturu czworokątem.
+- `scale_factor`, `threshold_block_size` i `threshold_c` przygotowują
+  wyprostowany obraz bezpośrednio dla Tesseract.
+- Ustawienie `page_detection.enabled` na `false` wymusza OCR całej klatki.
 
 Identyfikator głośnika sprawdzisz poleceniem `aplay -l`. Przykład:
 
@@ -90,11 +131,35 @@ speaker-test -t wav -c 2
 tesseract tmp/camera.jpg stdout -l pol --psm 6
 ```
 
+Do pierwszych testów na Jetsonie ustaw tymczasowo:
+
+```json
+"page_detection": {
+  "debug_images": true
+}
+```
+
+Po każdej akcji odczytu program nadal nadpisuje `tmp/page_raw.jpg` i
+`tmp/page_prepared.png`. Przy włączonym debugowaniu powstają dodatkowo:
+
+- `tmp/page_edges.png` — krawędzie wykryte przez Canny;
+- `tmp/page_detected.jpg` — surowa klatka z zielonym obrysem wybranej kartki;
+- `tmp/page_warped.png` — wyprostowana kartka przed progowaniem; przy
+  fallbacku nieaktualny plik jest usuwany.
+
+Sprawdzaj je w tej kolejności: `page_raw` → `page_edges` → `page_detected` →
+`page_warped` → `page_prepared`. Pozwala to ustalić, czy problem powstał przy
+rejestracji obrazu, detekcji krawędzi, wyborze konturu, transformacji czy
+binaryzacji. Po zakończeniu strojenia wyłącz `debug_images`, aby ograniczyć
+zapisy na karcie SD.
+
 Najczęstsze problemy:
 
 - brak klatki: ustaw właściwe `camera.device` po `v4l2-ctl --list-devices`;
 - brak dźwięku: ustaw `speech.aplay_device` i sprawdź `alsamixer`;
-- słaby OCR: porównaj `tmp/page_raw.jpg` z `tmp/page_prepared.png`, równomiernie oświetl kartkę, usuń odblaski i wypełnij nią kadr;
+- słaby OCR: włącz diagnostykę, pokaż w kadrze wszystkie cztery krawędzie
+  kartki, zapewnij równomierne światło i usuń odblaski; jeśli obrys jest
+  błędny, dostrój progi Canny lub `min_page_area_ratio`;
 - przerwana kompilacja: sprawdź swap i użyj `BUILD_JOBS=1 ./scripts/build_yolo.sh`;
 - resety lub throttling: uruchom `tegrastats`, popraw zasilanie i chłodzenie.
 

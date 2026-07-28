@@ -10,7 +10,8 @@ The assistant has two event-driven modes:
 
 ```text
 Describe: camera → YOLOv5n → TensorRT → Polish description → Piper → speaker
-Read:     camera → OpenCV → Tesseract (pol) → Piper → speaker
+Read:     camera → grayscale/Canny → contours → perspective correction
+          → adaptive threshold → Tesseract (pol) → Piper → speaker
 ```
 
 - Fully local after installation; no cloud inference or speech service.
@@ -18,6 +19,11 @@ Read:     camera → OpenCV → Tesseract (pol) → Piper → speaker
 - Designed around the constraints of JetPack 4.6.1, Ubuntu 18.04 and Python 3.6.
 - Keeps the camera stream and Piper voice loaded for the session to avoid repeated USB wake-ups and model reloads.
 - Runs TensorRT YOLO in an isolated process: consecutive descriptions reuse it, while selecting OCR stops it and releases CUDA memory.
+
+OCR finds the largest sufficiently large convex quadrilateral, orders its
+corners and rectifies the page at full resolution. If the whole page is not
+visible or perspective correction fails, it safely processes the full frame
+and still invokes Tesseract.
 
 > This is an assistive **demonstrator**, not a certified mobility or safety device. Detection and OCR can be wrong; do not rely on it for navigation, traffic, medication or other safety-critical decisions.
 
@@ -63,7 +69,42 @@ python3 src/main_demo.py --mode keyboard
 
 ## Configuration
 
-The bootstrap copies `config/config.example.json` to the ignored, device-local `config/config.json`. Edit it to select the camera index, UVC pixel format/FPS, ALSA device, thresholds, model paths and GPIO pins. The default camera session explicitly negotiates `MJPG`, 1280×720 at 15 FPS, discards 30 warm-up frames and continuously retains the newest frame.
+The bootstrap copies `config/config.example.json` to the ignored, device-local `config/config.json`. Edit it to select the camera index, UVC pixel format/FPS, ALSA device, OCR parameters, YOLO confidence, model paths and GPIO pins. The default camera session explicitly negotiates `MJPG`, 1280×720 at 15 FPS, discards 30 warm-up frames and continuously retains the newest frame.
+
+Existing local `config.json` files do not require migration. Configuration is
+deep-merged with the defaults, so missing OCR keys are filled automatically.
+The complete set is available in
+[`config/config.example.json`](config/config.example.json):
+
+```json
+"ocr": {
+  "language": "pol",
+  "page_segmentation_mode": 6,
+  "max_characters": 700,
+  "scale_factor": 1.6,
+  "threshold_block_size": 31,
+  "threshold_c": 11,
+  "page_detection": {
+    "enabled": true,
+    "max_width": 800,
+    "blur_kernel": 5,
+    "canny_low": 50,
+    "canny_high": 150,
+    "contour_candidates": 10,
+    "approx_epsilon_ratio": 0.02,
+    "min_page_area_ratio": 0.20,
+    "debug_images": false
+  }
+}
+```
+
+- `max_width` limits only the copy used for Canny and contours; perspective
+  correction uses the full-resolution frame.
+- `min_page_area_ratio` controls how much of the image a page must occupy.
+- `approx_epsilon_ratio` controls contour-to-quadrilateral approximation.
+- `scale_factor`, `threshold_block_size` and `threshold_c` prepare the
+  rectified image directly for Tesseract.
+- Setting `page_detection.enabled` to `false` forces full-frame OCR.
 
 For a USB speaker, find the ALSA identifier with `aplay -l`, then set for example:
 
@@ -110,11 +151,35 @@ speaker-test -t wav -c 2
 tesseract tmp/camera.jpg stdout -l pol --psm 6
 ```
 
+For the first tests on the Jetson, temporarily set:
+
+```json
+"page_detection": {
+  "debug_images": true
+}
+```
+
+Every read action continues to overwrite `tmp/page_raw.jpg` and
+`tmp/page_prepared.png`. With debugging enabled it also writes:
+
+- `tmp/page_edges.png` — the Canny edge map;
+- `tmp/page_detected.jpg` — the raw frame with the selected page outlined in
+  green;
+- `tmp/page_warped.png` — the rectified grayscale page before thresholding;
+  a stale file is removed when full-frame fallback is used.
+
+Inspect them in this order: `page_raw` → `page_edges` → `page_detected` →
+`page_warped` → `page_prepared`. This separates camera, edge detection,
+contour selection, perspective and thresholding problems. Disable
+`debug_images` after tuning to reduce SD-card writes.
+
 Common issues:
 
 - `No frame received`: change `camera.device` after checking `v4l2-ctl --list-devices`.
 - Silence or wrong output: set `speech.aplay_device`; check mute and gain in `alsamixer`.
-- Poor OCR: compare `tmp/page_raw.jpg` with `tmp/page_prepared.png`, fill the frame, avoid glare, use even light and keep the page parallel to the camera.
+- Poor OCR: enable diagnostics, keep all four page edges visible, use even
+  light and avoid glare; if the outline is wrong, tune the Canny thresholds or
+  `min_page_area_ratio`.
 - Build killed: confirm swap is active and rerun `BUILD_JOBS=1 ./scripts/build_yolo.sh`.
 - Sudden resets or throttling: use `tegrastats`; improve the 5 V supply and cooling.
 

@@ -11,7 +11,21 @@
   "ocr": {
     "language": "pol",
     "page_segmentation_mode": 6,
-    "max_characters": 700
+    "max_characters": 700,
+    "scale_factor": 1.6,
+    "threshold_block_size": 31,
+    "threshold_c": 11,
+    "page_detection": {
+      "enabled": true,
+      "max_width": 800,
+      "blur_kernel": 5,
+      "canny_low": 50,
+      "canny_high": 150,
+      "contour_candidates": 10,
+      "approx_epsilon_ratio": 0.02,
+      "min_page_area_ratio": 0.20,
+      "debug_images": false
+    }
   },
   "speech": {
     "binary": "bin/piper-jetson/piper",
