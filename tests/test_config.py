@@ -45,11 +45,13 @@ class ConfigTests(unittest.TestCase):
                 "min_page_area_ratio",
                 "clipped_page_fallback",
                 "frame_border_thickness",
+                "debug_console",
                 "debug_images",
             }.issubset(detection)
         )
         self.assertIsInstance(detection["enabled"], bool)
         self.assertIsInstance(detection["clipped_page_fallback"], bool)
+        self.assertIsInstance(detection["debug_console"], bool)
         self.assertIsInstance(detection["debug_images"], bool)
         self.assertGreater(detection["max_width"], 0)
         self.assertGreater(detection["blur_kernel"], 0)
@@ -87,6 +89,7 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(settings["enabled"])
         self.assertTrue(settings["clipped_page_fallback"])
         self.assertEqual(settings["frame_border_thickness"], 3)
+        self.assertFalse(settings["debug_console"])
 
     def test_example_ocr_settings_match_defaults(self):
         example_path = config.PROJECT_ROOT / "config" / "config.example.json"

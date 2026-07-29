@@ -88,6 +88,7 @@ uzupełniany. Pełny zestaw znajduje się w
     "min_page_area_ratio": 0.20,
     "clipped_page_fallback": true,
     "frame_border_thickness": 3,
+    "debug_console": false,
     "debug_images": false
   }
 }
@@ -101,6 +102,9 @@ uzupełniany. Pełny zestaw znajduje się w
   kadru, gdy część strony wychodzi poza obraz.
 - `frame_border_thickness` określa grubość pomocniczej ramki na mapie Canny;
   wartość `3` łączy krawędzie kończące się kilka pikseli od brzegu.
+- `debug_console` włącza komunikat w konsoli bez zapisywania dodatkowych
+  obrazów. Włączenie dowolnej flagi `debug_*`, także `debug_images`, również
+  uruchamia ten komunikat.
 - `scale_factor`, `threshold_block_size` i `threshold_c` przygotowują
   wyprostowany obraz bezpośrednio dla Tesseract.
 - Ustawienie `page_detection.enabled` na `false` wymusza OCR całej klatki.
@@ -154,6 +158,15 @@ Po każdej akcji odczytu program nadal nadpisuje `tmp/page_raw.jpg` i
   kadru;
 - `tmp/page_warped.png` — wyprostowana kartka przed progowaniem; przy
   fallbacku nieaktualny plik jest usuwany.
+
+Przy dowolnej fladze `debug_*` ustawionej na `true` konsola, a w trybie usługi
+również `journalctl`, pokaże wybraną ścieżkę, na przykład:
+
+```text
+[OCR debug] Fallback: brak; wykryto pełny czworokąt kartki.
+[OCR debug] Fallback: narożniki domknięte granicą kadru.
+[OCR debug] Fallback: OCR całej klatki; nie znaleziono wiarygodnego czworokąta kartki.
+```
 
 Sprawdzaj je w tej kolejności: `page_raw` → `page_edges` → `page_detected` →
 `page_warped` → `page_prepared`. Pozwala to ustalić, czy problem powstał przy

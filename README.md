@@ -95,6 +95,7 @@ The complete set is available in
     "min_page_area_ratio": 0.20,
     "clipped_page_fallback": true,
     "frame_border_thickness": 3,
+    "debug_console": false,
     "debug_images": false
   }
 }
@@ -108,6 +109,9 @@ The complete set is available in
   part of the page extends outside the image.
 - `frame_border_thickness` controls the helper border on the Canny map; the
   default `3` bridges edges ending a few pixels before the frame.
+- `debug_console` enables the console status without writing diagnostic
+  images. Enabling any `debug_*` flag, including `debug_images`, also prints
+  this status.
 - `scale_factor`, `threshold_block_size` and `threshold_c` prepare the
   rectified image directly for Tesseract.
 - Setting `page_detection.enabled` to `false` forces full-frame OCR.
@@ -173,6 +177,15 @@ Every read action continues to overwrite `tmp/page_raw.jpg` and
   green for a complete contour or orange for corners inferred from the frame;
 - `tmp/page_warped.png` — the rectified grayscale page before thresholding;
   a stale file is removed when full-frame fallback is used.
+
+When any `debug_*` flag is `true`, the console—or `journalctl` in service
+mode—reports which path was selected, for example:
+
+```text
+[OCR debug] Fallback: brak; wykryto pełny czworokąt kartki.
+[OCR debug] Fallback: narożniki domknięte granicą kadru.
+[OCR debug] Fallback: OCR całej klatki; nie znaleziono wiarygodnego czworokąta kartki.
+```
 
 Inspect them in this order: `page_raw` → `page_edges` → `page_detected` →
 `page_warped` → `page_prepared`. This separates camera, edge detection,

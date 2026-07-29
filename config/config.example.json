@@ -26,6 +26,7 @@
       "min_page_area_ratio": 0.20,
       "clipped_page_fallback": true,
       "frame_border_thickness": 3,
+      "debug_console": false,
       "debug_images": false
     }
   },

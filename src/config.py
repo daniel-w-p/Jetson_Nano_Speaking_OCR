@@ -40,6 +40,7 @@ DEFAULTS = {
             "min_page_area_ratio": 0.20,
             "clipped_page_fallback": True,
             "frame_border_thickness": 3,
+            "debug_console": False,
             "debug_images": False,
         },
     },

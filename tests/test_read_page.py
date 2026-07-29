@@ -1330,6 +1330,129 @@ class DebugImageTests(unittest.TestCase):
             )
 
 
+class DebugStatusTests(unittest.TestCase):
+    def test_any_debug_flag_is_detected_recursively(self):
+        self.assertTrue(
+            read_page.any_ocr_debug_flag_enabled(
+                {
+                    "page_detection": {
+                        "debug_images": True,
+                    },
+                }
+            )
+        )
+        self.assertTrue(
+            read_page.any_ocr_debug_flag_enabled(
+                {
+                    "debug_console": False,
+                    "nested": {
+                        "debug_future_option": True,
+                    },
+                }
+            )
+        )
+        self.assertFalse(
+            read_page.any_ocr_debug_flag_enabled(
+                {
+                    "debug_console": False,
+                    "debug_images": False,
+                    "debug_not_boolean": 1,
+                }
+            )
+        )
+
+    def test_debug_status_is_silent_when_all_debug_flags_are_disabled(self):
+        settings = {
+            "page_detection": {
+                "enabled": True,
+                "debug_console": False,
+                "debug_images": False,
+            }
+        }
+
+        with mock.patch("builtins.print") as print_message:
+            read_page.write_ocr_debug_status({}, settings)
+
+        print_message.assert_not_called()
+
+    def test_debug_status_reports_selected_fallback(self):
+        settings = {
+            "page_detection": {
+                "enabled": True,
+                "debug_console": True,
+                "debug_images": False,
+            }
+        }
+        cases = [
+            (
+                {
+                    "page_detected": True,
+                    "corners_inferred": False,
+                    "used_fallback": False,
+                },
+                "[OCR debug] Fallback: brak; wykryto pełny czworokąt kartki.",
+            ),
+            (
+                {
+                    "page_detected": True,
+                    "corners_inferred": True,
+                    "used_fallback": False,
+                },
+                "[OCR debug] Fallback: narożniki domknięte granicą kadru.",
+            ),
+            (
+                {
+                    "page_detected": False,
+                    "corners_inferred": False,
+                    "used_fallback": True,
+                },
+                (
+                    "[OCR debug] Fallback: OCR całej klatki; nie znaleziono "
+                    "wiarygodnego czworokąta kartki."
+                ),
+            ),
+            (
+                {
+                    "page_detected": True,
+                    "corners_inferred": True,
+                    "used_fallback": True,
+                },
+                (
+                    "[OCR debug] Fallback: OCR całej klatki; transformacja "
+                    "narożników domkniętych granicą kadru nie powiodła się."
+                ),
+            ),
+        ]
+
+        for metadata, expected in cases:
+            with self.subTest(expected=expected):
+                with mock.patch("builtins.print") as print_message:
+                    read_page.write_ocr_debug_status(metadata, settings)
+                print_message.assert_called_once_with(expected, flush=True)
+
+    def test_debug_status_reports_disabled_page_detection(self):
+        settings = {
+            "page_detection": {
+                "enabled": False,
+                "debug_console": True,
+            }
+        }
+        metadata = {
+            "page_detected": False,
+            "corners_inferred": False,
+            "used_fallback": True,
+        }
+
+        with mock.patch("builtins.print") as print_message:
+            read_page.write_ocr_debug_status(metadata, settings)
+
+        print_message.assert_called_once_with(
+            "[OCR debug] Fallback: OCR całej klatki; "
+            "detekcja kartki jest wyłączona.",
+            flush=True,
+        )
+
+
 class OcrImageTests(unittest.TestCase):
     def test_ocr_image_invokes_tesseract_and_strips_output(self):
         process = mock.Mock(

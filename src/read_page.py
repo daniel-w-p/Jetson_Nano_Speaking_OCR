@@ -586,6 +586,49 @@ def write_ocr_debug_images(runtime, frame, metadata, enabled):
         cv2.imwrite(str(warped_path), warped)
 
 
+def any_ocr_debug_flag_enabled(settings):
+    """Return whether any boolean debug_* option is enabled recursively."""
+    for key, value in settings.items():
+        if isinstance(value, dict):
+            if any_ocr_debug_flag_enabled(value):
+                return True
+        elif key.startswith("debug_") and value is True:
+            return True
+    return False
+
+
+def write_ocr_debug_status(metadata, settings):
+    """Print which page-detection fallback produced the OCR input."""
+    if not any_ocr_debug_flag_enabled(settings):
+        return
+
+    detection_settings = settings["page_detection"]
+    if metadata["used_fallback"]:
+        if not detection_settings["enabled"]:
+            status = "OCR całej klatki; detekcja kartki jest wyłączona."
+        elif metadata.get("corners_inferred", False):
+            status = (
+                "OCR całej klatki; transformacja narożników domkniętych "
+                "granicą kadru nie powiodła się."
+            )
+        elif metadata["page_detected"]:
+            status = (
+                "OCR całej klatki; transformacja pełnego czworokąta "
+                "nie powiodła się."
+            )
+        else:
+            status = (
+                "OCR całej klatki; nie znaleziono wiarygodnego "
+                "czworokąta kartki."
+            )
+    elif metadata.get("corners_inferred", False):
+        status = "narożniki domknięte granicą kadru."
+    else:
+        status = "brak; wykryto pełny czworokąt kartki."
+
+    print("[OCR debug] Fallback: {0}".format(status), flush=True)
+
+
 def ocr_image(path, settings):
     result = subprocess.run(
         [
@@ -619,6 +662,7 @@ def read_once(speak=True, camera_session=None):
     prepared, metadata = preprocess_for_ocr(frame, config["ocr"])
     image_path = runtime / "page_prepared.png"
     cv2.imwrite(str(image_path), prepared)
+    write_ocr_debug_status(metadata, config["ocr"])
     write_ocr_debug_images(
         runtime,
         frame,
