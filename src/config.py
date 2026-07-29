@@ -38,6 +38,8 @@ DEFAULTS = {
             "contour_candidates": 10,
             "approx_epsilon_ratio": 0.02,
             "min_page_area_ratio": 0.20,
+            "clipped_page_fallback": True,
+            "frame_border_thickness": 3,
             "debug_images": False,
         },
     },

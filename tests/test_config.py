@@ -43,10 +43,13 @@ class ConfigTests(unittest.TestCase):
                 "contour_candidates",
                 "approx_epsilon_ratio",
                 "min_page_area_ratio",
+                "clipped_page_fallback",
+                "frame_border_thickness",
                 "debug_images",
             }.issubset(detection)
         )
         self.assertIsInstance(detection["enabled"], bool)
+        self.assertIsInstance(detection["clipped_page_fallback"], bool)
         self.assertIsInstance(detection["debug_images"], bool)
         self.assertGreater(detection["max_width"], 0)
         self.assertGreater(detection["blur_kernel"], 0)
@@ -58,6 +61,7 @@ class ConfigTests(unittest.TestCase):
         self.assertLess(detection["approx_epsilon_ratio"], 1)
         self.assertGreater(detection["min_page_area_ratio"], 0)
         self.assertLess(detection["min_page_area_ratio"], 1)
+        self.assertGreater(detection["frame_border_thickness"], 0)
 
     def test_nested_override_keeps_other_page_detection_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -81,6 +85,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings["canny_high"], 150)
         self.assertEqual(settings["max_width"], 800)
         self.assertTrue(settings["enabled"])
+        self.assertTrue(settings["clipped_page_fallback"])
+        self.assertEqual(settings["frame_border_thickness"], 3)
 
     def test_example_ocr_settings_match_defaults(self):
         example_path = config.PROJECT_ROOT / "config" / "config.example.json"

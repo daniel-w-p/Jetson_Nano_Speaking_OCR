@@ -86,6 +86,8 @@ uzupełniany. Pełny zestaw znajduje się w
     "contour_candidates": 10,
     "approx_epsilon_ratio": 0.02,
     "min_page_area_ratio": 0.20,
+    "clipped_page_fallback": true,
+    "frame_border_thickness": 3,
     "debug_images": false
   }
 }
@@ -95,6 +97,10 @@ uzupełniany. Pełny zestaw znajduje się w
   transformacja korzysta z pełnej klatki.
 - `min_page_area_ratio` określa minimalną część obrazu zajmowaną przez kartkę.
 - `approx_epsilon_ratio` steruje przybliżaniem konturu czworokątem.
+- `clipped_page_fallback` pozwala domknąć widoczne krawędzie kartki granicami
+  kadru, gdy część strony wychodzi poza obraz.
+- `frame_border_thickness` określa grubość pomocniczej ramki na mapie Canny;
+  wartość `3` łączy krawędzie kończące się kilka pikseli od brzegu.
 - `scale_factor`, `threshold_block_size` i `threshold_c` przygotowują
   wyprostowany obraz bezpośrednio dla Tesseract.
 - Ustawienie `page_detection.enabled` na `false` wymusza OCR całej klatki.
@@ -143,7 +149,9 @@ Po każdej akcji odczytu program nadal nadpisuje `tmp/page_raw.jpg` i
 `tmp/page_prepared.png`. Przy włączonym debugowaniu powstają dodatkowo:
 
 - `tmp/page_edges.png` — krawędzie wykryte przez Canny;
-- `tmp/page_detected.jpg` — surowa klatka z zielonym obrysem wybranej kartki;
+- `tmp/page_detected.jpg` — surowa klatka z obrysem kartki: zielonym dla
+  pełnego konturu albo pomarańczowym dla narożników dopowiedzianych z granic
+  kadru;
 - `tmp/page_warped.png` — wyprostowana kartka przed progowaniem; przy
   fallbacku nieaktualny plik jest usuwany.
 
@@ -157,9 +165,9 @@ Najczęstsze problemy:
 
 - brak klatki: ustaw właściwe `camera.device` po `v4l2-ctl --list-devices`;
 - brak dźwięku: ustaw `speech.aplay_device` i sprawdź `alsamixer`;
-- słaby OCR: włącz diagnostykę, pokaż w kadrze wszystkie cztery krawędzie
-  kartki, zapewnij równomierne światło i usuń odblaski; jeśli obrys jest
-  błędny, dostrój progi Canny lub `min_page_area_ratio`;
+- słaby OCR: włącz diagnostykę, zapewnij równomierne światło i usuń odblaski;
+  jeśli obrys jest błędny, dostrój progi Canny lub `min_page_area_ratio`.
+  Pomarańczowy obrys jest oczekiwany, gdy kartka wychodzi poza kadr;
 - przerwana kompilacja: sprawdź swap i użyj `BUILD_JOBS=1 ./scripts/build_yolo.sh`;
 - resety lub throttling: uruchom `tegrastats`, popraw zasilanie i chłodzenie.
 

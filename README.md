@@ -93,6 +93,8 @@ The complete set is available in
     "contour_candidates": 10,
     "approx_epsilon_ratio": 0.02,
     "min_page_area_ratio": 0.20,
+    "clipped_page_fallback": true,
+    "frame_border_thickness": 3,
     "debug_images": false
   }
 }
@@ -102,6 +104,10 @@ The complete set is available in
   correction uses the full-resolution frame.
 - `min_page_area_ratio` controls how much of the image a page must occupy.
 - `approx_epsilon_ratio` controls contour-to-quadrilateral approximation.
+- `clipped_page_fallback` closes visible page edges against the frame when
+  part of the page extends outside the image.
+- `frame_border_thickness` controls the helper border on the Canny map; the
+  default `3` bridges edges ending a few pixels before the frame.
 - `scale_factor`, `threshold_block_size` and `threshold_c` prepare the
   rectified image directly for Tesseract.
 - Setting `page_detection.enabled` to `false` forces full-frame OCR.
@@ -164,7 +170,7 @@ Every read action continues to overwrite `tmp/page_raw.jpg` and
 
 - `tmp/page_edges.png` — the Canny edge map;
 - `tmp/page_detected.jpg` — the raw frame with the selected page outlined in
-  green;
+  green for a complete contour or orange for corners inferred from the frame;
 - `tmp/page_warped.png` — the rectified grayscale page before thresholding;
   a stale file is removed when full-frame fallback is used.
 
@@ -177,9 +183,9 @@ Common issues:
 
 - `No frame received`: change `camera.device` after checking `v4l2-ctl --list-devices`.
 - Silence or wrong output: set `speech.aplay_device`; check mute and gain in `alsamixer`.
-- Poor OCR: enable diagnostics, keep all four page edges visible, use even
-  light and avoid glare; if the outline is wrong, tune the Canny thresholds or
-  `min_page_area_ratio`.
+- Poor OCR: enable diagnostics, use even light and avoid glare; if the outline
+  is wrong, tune the Canny thresholds or `min_page_area_ratio`. An orange
+  outline is expected when the page extends beyond the frame.
 - Build killed: confirm swap is active and rerun `BUILD_JOBS=1 ./scripts/build_yolo.sh`.
 - Sudden resets or throttling: use `tegrastats`; improve the 5 V supply and cooling.
 

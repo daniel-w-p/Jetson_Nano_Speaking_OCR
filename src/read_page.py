@@ -98,8 +98,8 @@ def _quadrilateral_points(approximation):
     return points
 
 
-def select_page_quadrilateral(contours, image_shape, settings):
-    """Return the first geometrically valid page candidate, or None."""
+def _valid_page_quadrilaterals(contours, image_shape, settings):
+    """Yield valid quadrilaterals with their contour areas."""
     height, width = image_shape[:2]
     if height <= 0 or width <= 0:
         raise ValueError("Page detection image must have positive dimensions")
@@ -151,9 +151,148 @@ def select_page_quadrilateral(contours, image_shape, settings):
         if has_short_side:
             continue
 
+        yield approximation, contour_area
+
+
+def select_page_quadrilateral(contours, image_shape, settings):
+    """Return the first geometrically valid page candidate, or None."""
+    for approximation, _contour_area in _valid_page_quadrilaterals(
+        contours,
+        image_shape,
+        settings,
+    ):
         return approximation
 
     return None
+
+
+def _is_frame_outline(points, image_shape, tolerance):
+    """Return whether a quadrilateral is just the artificial image frame."""
+    height, width = image_shape[:2]
+    try:
+        ordered = order_page_corners(points)
+    except ValueError:
+        return False
+
+    frame_corners = [
+        (0.0, 0.0),
+        (float(width - 1), 0.0),
+        (float(width - 1), float(height - 1)),
+        (0.0, float(height - 1)),
+    ]
+    return all(
+        abs(point[0] - frame[0]) <= tolerance
+        and abs(point[1] - frame[1]) <= tolerance
+        for point, frame in zip(ordered, frame_corners)
+    )
+
+
+def _polygon_contains_point(points, point):
+    """Return whether a point lies inside or on a quadrilateral."""
+    polygon = _quadrilateral_points(points)
+    if polygon is None or len(polygon) != 4:
+        return False
+
+    point_x, point_y = point
+    inside = False
+    previous = polygon[-1]
+    for current in polygon:
+        current_x, current_y = current
+        previous_x, previous_y = previous
+
+        cross_product = (
+            (point_x - previous_x) * (current_y - previous_y)
+            - (point_y - previous_y) * (current_x - previous_x)
+        )
+        if abs(cross_product) <= 1e-6:
+            min_x = min(previous_x, current_x)
+            max_x = max(previous_x, current_x)
+            min_y = min(previous_y, current_y)
+            max_y = max(previous_y, current_y)
+            if min_x <= point_x <= max_x and min_y <= point_y <= max_y:
+                return True
+
+        crosses_ray = (current_y > point_y) != (previous_y > point_y)
+        if crosses_ray:
+            intersection_x = (
+                (previous_x - current_x)
+                * (point_y - current_y)
+                / (previous_y - current_y)
+                + current_x
+            )
+            if point_x < intersection_x:
+                inside = not inside
+        previous = current
+    return inside
+
+
+def select_clipped_page_quadrilateral(edges, settings):
+    """Infer clipped page corners by closing visible edges on the frame."""
+    if not settings["clipped_page_fallback"]:
+        return None
+
+    border_thickness = int(settings["frame_border_thickness"])
+    if border_thickness <= 0:
+        raise ValueError(
+            "page_detection.frame_border_thickness must be greater than zero"
+        )
+
+    height, width = edges.shape[:2]
+    if height <= 0 or width <= 0:
+        raise ValueError("Page detection image must have positive dimensions")
+
+    bordered_edges = edges.copy()
+    cv2.rectangle(
+        bordered_edges,
+        (0, 0),
+        (width - 1, height - 1),
+        255,
+        border_thickness,
+    )
+    contours = find_page_contours(bordered_edges, settings)
+    frame_tolerance = float(border_thickness + 1)
+    image_center = ((width - 1) / 2.0, (height - 1) / 2.0)
+    candidates = []
+    for approximation, contour_area in _valid_page_quadrilaterals(
+        contours,
+        bordered_edges.shape,
+        settings,
+    ):
+        if _is_frame_outline(
+            approximation,
+            bordered_edges.shape,
+            frame_tolerance,
+        ):
+            continue
+        candidates.append(
+            (
+                _polygon_contains_point(approximation, image_center),
+                contour_area,
+                approximation,
+            )
+        )
+
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda candidate: (candidate[0], candidate[1]),
+        reverse=True,
+    )
+    return candidates[0][2]
+
+
+def find_page_candidate(edges, contours, settings):
+    """Return a normal or frame-inferred candidate and an inference flag."""
+    candidate = select_page_quadrilateral(
+        contours,
+        edges.shape,
+        settings,
+    )
+    if candidate is not None:
+        return candidate, False
+
+    candidate = select_clipped_page_quadrilateral(edges, settings)
+    return candidate, candidate is not None
 
 
 def order_page_corners(points):
@@ -360,6 +499,7 @@ def preprocess_for_ocr(frame, settings):
     contours = []
     detection_scale = (1.0, 1.0)
     page_candidate = None
+    corners_inferred = False
     corners = None
     warped = None
     if detection_settings["enabled"]:
@@ -369,9 +509,9 @@ def preprocess_for_ocr(frame, settings):
         )
         contours = find_page_contours(edges, detection_settings)
         detection_scale = (scale_x, scale_y)
-        page_candidate = select_page_quadrilateral(
+        page_candidate, corners_inferred = find_page_candidate(
+            edges,
             contours,
-            edges.shape,
             detection_settings,
         )
         corners = map_page_candidate(
@@ -386,6 +526,7 @@ def preprocess_for_ocr(frame, settings):
     prepared = prepare_ocr_image(ocr_source, settings)
     metadata = {
         "page_detected": corners is not None,
+        "corners_inferred": corners_inferred and corners is not None,
         "used_fallback": used_fallback,
         "corners": corners,
         "edges": edges,
@@ -418,6 +559,11 @@ def write_ocr_debug_images(runtime, frame, metadata, enabled):
     overlay = frame.copy()
     corners = metadata["corners"]
     if corners is not None and len(corners) == 4:
+        outline_color = (
+            (0, 165, 255)
+            if metadata.get("corners_inferred", False)
+            else (0, 255, 0)
+        )
         points = [
             (int(round(point[0])), int(round(point[1])))
             for point in corners
@@ -427,7 +573,7 @@ def write_ocr_debug_images(runtime, frame, metadata, enabled):
                 overlay,
                 point,
                 points[(index + 1) % 4],
-                (0, 255, 0),
+                outline_color,
                 3,
             )
     cv2.imwrite(str(runtime / "page_detected.jpg"), overlay)

@@ -478,6 +478,133 @@ class PreprocessTests(unittest.TestCase):
                         settings,
                     )
 
+    def test_clipped_page_fallback_adds_frame_and_prefers_centered_page(self):
+        edges = mock.Mock()
+        edges.shape = (100, 100)
+        bordered_edges = mock.Mock()
+        bordered_edges.shape = (100, 100)
+        edges.copy.return_value = bordered_edges
+        frame_contour = object()
+        off_center_contour = object()
+        centered_contour = object()
+        frame = [
+            [[0, 0]],
+            [[99, 0]],
+            [[99, 99]],
+            [[0, 99]],
+        ]
+        off_center = [
+            [[0, 10]],
+            [[40, 10]],
+            [[40, 90]],
+            [[0, 90]],
+        ]
+        centered = [
+            [[30, 20]],
+            [[70, 20]],
+            [[70, 80]],
+            [[30, 80]],
+        ]
+        rectangle = mock.Mock()
+        settings = dict(config.DEFAULTS["ocr"]["page_detection"])
+
+        with mock.patch.object(
+            read_page.cv2,
+            "rectangle",
+            new=rectangle,
+            create=True,
+        ):
+            with mock.patch.object(
+                read_page,
+                "find_page_contours",
+                return_value=[
+                    frame_contour,
+                    off_center_contour,
+                    centered_contour,
+                ],
+            ) as find_contours:
+                with mock.patch.object(
+                    read_page,
+                    "_valid_page_quadrilaterals",
+                    return_value=[
+                        (frame, 9801.0),
+                        (off_center, 3200.0),
+                        (centered, 2400.0),
+                    ],
+                ):
+                    actual = read_page.select_clipped_page_quadrilateral(
+                        edges,
+                        settings,
+                    )
+
+        self.assertIs(actual, centered)
+        edges.copy.assert_called_once_with()
+        rectangle.assert_called_once_with(
+            bordered_edges,
+            (0, 0),
+            (99, 99),
+            255,
+            3,
+        )
+        find_contours.assert_called_once_with(bordered_edges, settings)
+
+    def test_clipped_page_fallback_can_be_disabled(self):
+        edges = mock.Mock()
+        settings = dict(config.DEFAULTS["ocr"]["page_detection"])
+        settings["clipped_page_fallback"] = False
+
+        actual = read_page.select_clipped_page_quadrilateral(
+            edges,
+            settings,
+        )
+
+        self.assertIsNone(actual)
+        edges.copy.assert_not_called()
+
+    def test_clipped_page_fallback_validates_border_thickness(self):
+        settings = dict(config.DEFAULTS["ocr"]["page_detection"])
+        settings["frame_border_thickness"] = 0
+
+        with self.assertRaisesRegex(ValueError, "frame_border_thickness"):
+            read_page.select_clipped_page_quadrilateral(
+                mock.Mock(),
+                settings,
+            )
+
+    def test_find_page_candidate_uses_clipped_fallback_only_when_needed(self):
+        edges = mock.Mock()
+        edges.shape = (100, 100)
+        contours = [object()]
+        settings = config.DEFAULTS["ocr"]["page_detection"]
+        normal = object()
+        inferred = object()
+
+        with mock.patch.object(
+            read_page,
+            "select_page_quadrilateral",
+            side_effect=[normal, None],
+        ) as select_normal:
+            with mock.patch.object(
+                read_page,
+                "select_clipped_page_quadrilateral",
+                return_value=inferred,
+            ) as select_clipped:
+                normal_result = read_page.find_page_candidate(
+                    edges,
+                    contours,
+                    settings,
+                )
+                inferred_result = read_page.find_page_candidate(
+                    edges,
+                    contours,
+                    settings,
+                )
+
+        self.assertEqual(normal_result, (normal, False))
+        self.assertEqual(inferred_result, (inferred, True))
+        self.assertEqual(select_normal.call_count, 2)
+        select_clipped.assert_called_once_with(edges, settings)
+
     def test_order_page_corners_is_stable_for_all_input_permutations(self):
         expected = [
             (20.0, 10.0),
@@ -784,6 +911,7 @@ class PreprocessTests(unittest.TestCase):
             metadata,
             {
                 "page_detected": False,
+                "corners_inferred": False,
                 "used_fallback": True,
                 "corners": None,
                 "edges": None,
@@ -809,7 +937,7 @@ class PreprocessTests(unittest.TestCase):
         cvt_color = mock.Mock(return_value=gray)
         detect_edges = mock.Mock(return_value=(edges, 1.6, 1.6))
         find_contours = mock.Mock(return_value=contours)
-        select_quadrilateral = mock.Mock(return_value=page_candidate)
+        find_candidate = mock.Mock(return_value=(page_candidate, True))
         order_corners = mock.Mock(return_value=ordered_corners)
         scale_corners = mock.Mock(return_value=source_corners)
         warp = mock.Mock(return_value=warped_page)
@@ -839,8 +967,8 @@ class PreprocessTests(unittest.TestCase):
             ),
             mock.patch.object(
                 read_page,
-                "select_page_quadrilateral",
-                new=select_quadrilateral,
+                "find_page_candidate",
+                new=find_candidate,
             ),
             mock.patch.object(
                 read_page,
@@ -882,9 +1010,9 @@ class PreprocessTests(unittest.TestCase):
             edges,
             settings["page_detection"],
         )
-        select_quadrilateral.assert_called_once_with(
+        find_candidate.assert_called_once_with(
+            edges,
             contours,
-            edges.shape,
             settings["page_detection"],
         )
         order_corners.assert_called_once_with(page_candidate)
@@ -900,6 +1028,7 @@ class PreprocessTests(unittest.TestCase):
             metadata,
             {
                 "page_detected": True,
+                "corners_inferred": True,
                 "used_fallback": False,
                 "corners": source_corners,
                 "edges": edges,
@@ -1086,6 +1215,46 @@ class DebugImageTests(unittest.TestCase):
                 mock.call(str(runtime / "page_warped.png"), warped),
             ]
         )
+
+    def test_debug_images_draw_inferred_corners_in_orange(self):
+        runtime = Path("runtime")
+        frame = mock.Mock()
+        overlay = object()
+        frame.copy.return_value = overlay
+        metadata = {
+            "corners": [
+                (10, 20),
+                (100, 20),
+                (100, 200),
+                (10, 200),
+            ],
+            "corners_inferred": True,
+            "edges": None,
+            "warped": None,
+        }
+        line = mock.Mock()
+
+        with mock.patch.object(
+            read_page.cv2,
+            "line",
+            new=line,
+            create=True,
+        ):
+            with mock.patch.object(
+                read_page.cv2,
+                "imwrite",
+                create=True,
+            ):
+                read_page.write_ocr_debug_images(
+                    runtime,
+                    frame,
+                    metadata,
+                    True,
+                )
+
+        self.assertEqual(line.call_count, 4)
+        for call in line.call_args_list:
+            self.assertEqual(call[0][-2:], ((0, 165, 255), 3))
 
     def test_debug_images_do_nothing_when_disabled(self):
         frame = mock.Mock()
