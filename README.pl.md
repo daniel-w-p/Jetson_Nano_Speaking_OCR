@@ -18,6 +18,9 @@ Czytanie: kamera → szarość/Canny → domknięcie przerw → kontury
 - Zgodność ze starym stosem JetPack 4.6.1, Ubuntu 18.04 i Python 3.6.
 - Kamera i model Pipera pozostają aktywne przez całą sesję, co eliminuje ciągłe wybudzanie USB i przeładowywanie głosu.
 - TensorRT YOLO działa w osobnym procesie: kolejne opisy używają go ponownie, a wybór OCR kończy proces i zwalnia pamięć CUDA.
+- Opis YOLO ma celowo maszynowy format liczebny, np. „Podsumowanie obrazu,
+  liczba wystąpień: Osoby 2 razy. Kot raz. Ptaki 4 razy.” Każda obsługiwana
+  klasa jest zliczana, a `max_objects` ogranicza liczbę raportowanych klas.
 
 OCR szuka największego, odpowiednio dużego i wypukłego czworokąta, porządkuje
 jego narożniki i prostuje kartkę w pełnej rozdzielczości. Jeśli nie widzi całej

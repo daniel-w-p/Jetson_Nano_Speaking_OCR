@@ -20,6 +20,10 @@ Read:     camera → grayscale/Canny → gap closing → contours
 - Designed around the constraints of JetPack 4.6.1, Ubuntu 18.04 and Python 3.6.
 - Keeps the camera stream and Piper voice loaded for the session to avoid repeated USB wake-ups and model reloads.
 - Runs TensorRT YOLO in an isolated process: consecutive descriptions reuse it, while selecting OCR stops it and releases CUDA memory.
+- YOLO descriptions intentionally use a machine-like count format, for
+  example: “Podsumowanie obrazu, liczba wystąpień: Osoby 2 razy. Kot raz.
+  Ptaki 4 razy.” Every supported class is counted, while `max_objects` limits
+  the number of reported classes.
 
 OCR finds the largest sufficiently large convex quadrilateral, orders its
 corners and rectifies the page at full resolution. If the whole page is not
