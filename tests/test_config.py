@@ -25,12 +25,30 @@ class ConfigTests(unittest.TestCase):
                 "scale_factor",
                 "threshold_block_size",
                 "threshold_c",
+                "deskew",
                 "page_detection",
             }.issubset(settings)
         )
         self.assertGreater(settings["scale_factor"], 0)
         self.assertGreater(settings["threshold_block_size"], 1)
         self.assertEqual(settings["threshold_block_size"] % 2, 1)
+
+        deskew = settings["deskew"]
+        self.assertIsInstance(deskew["enabled"], bool)
+        self.assertGreater(deskew["line_kernel_width"], 0)
+        self.assertGreater(deskew["line_kernel_height"], 0)
+        self.assertGreater(deskew["hough_threshold"], 0)
+        self.assertGreater(deskew["min_line_length_ratio"], 0)
+        self.assertLessEqual(deskew["min_line_length_ratio"], 1)
+        self.assertGreaterEqual(deskew["max_line_gap_ratio"], 0)
+        self.assertLessEqual(deskew["max_line_gap_ratio"], 1)
+        self.assertGreater(deskew["min_lines"], 0)
+        self.assertGreaterEqual(deskew["min_angle_degrees"], 0)
+        self.assertLess(
+            deskew["min_angle_degrees"],
+            deskew["max_angle_degrees"],
+        )
+        self.assertLess(deskew["max_angle_degrees"], 45)
 
         detection = settings["page_detection"]
         self.assertTrue(
@@ -40,6 +58,8 @@ class ConfigTests(unittest.TestCase):
                 "blur_kernel",
                 "canny_low",
                 "canny_high",
+                "edge_close_kernel",
+                "edge_close_iterations",
                 "contour_candidates",
                 "approx_epsilon_ratio",
                 "min_page_area_ratio",
@@ -58,6 +78,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(detection["blur_kernel"] % 2, 1)
         self.assertGreaterEqual(detection["canny_low"], 0)
         self.assertGreater(detection["canny_high"], detection["canny_low"])
+        self.assertGreater(detection["edge_close_kernel"], 0)
+        self.assertEqual(detection["edge_close_kernel"] % 2, 1)
+        self.assertGreater(detection["edge_close_iterations"], 0)
         self.assertGreater(detection["contour_candidates"], 0)
         self.assertGreater(detection["approx_epsilon_ratio"], 0)
         self.assertLess(detection["approx_epsilon_ratio"], 1)

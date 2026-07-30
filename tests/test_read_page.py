@@ -1,3 +1,4 @@
+import math
 import sys
 import tempfile
 import types
@@ -81,17 +82,98 @@ class PreprocessTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_width"):
             read_page.resize_for_page_detection(gray, {"max_width": 0})
 
+    def test_close_page_edge_gaps_uses_morphological_closing(self):
+        edges = object()
+        kernel = object()
+        closed_edges = object()
+        get_kernel = mock.Mock(return_value=kernel)
+        morphology = mock.Mock(return_value=closed_edges)
+        patches = [
+            mock.patch.object(
+                read_page.cv2,
+                "MORPH_RECT",
+                1,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "MORPH_CLOSE",
+                2,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "getStructuringElement",
+                new=get_kernel,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "morphologyEx",
+                new=morphology,
+                create=True,
+            ),
+        ]
+
+        for patch in patches:
+            patch.start()
+        try:
+            actual = read_page.close_page_edge_gaps(
+                edges,
+                {
+                    "edge_close_kernel": 5,
+                    "edge_close_iterations": 2,
+                },
+            )
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+
+        self.assertIs(actual, closed_edges)
+        get_kernel.assert_called_once_with(1, (5, 5))
+        morphology.assert_called_once_with(
+            edges,
+            2,
+            kernel,
+            iterations=2,
+        )
+
+    def test_close_page_edge_gaps_validates_settings(self):
+        invalid_settings = [
+            (
+                {
+                    "edge_close_kernel": 4,
+                    "edge_close_iterations": 1,
+                },
+                "edge_close_kernel",
+            ),
+            (
+                {
+                    "edge_close_kernel": 5,
+                    "edge_close_iterations": 0,
+                },
+                "edge_close_iterations",
+            ),
+        ]
+
+        for settings, expected_error in invalid_settings:
+            with self.subTest(settings=settings):
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    read_page.close_page_edge_gaps(object(), settings)
+
     def test_detection_edges_blurs_resized_image_and_runs_canny(self):
         gray = object()
         detection_gray = object()
         blurred = object()
-        edges = object()
+        raw_edges = object()
+        closed_edges = object()
         settings = config.DEFAULTS["ocr"]["page_detection"]
         resize_detection = mock.Mock(
             return_value=(detection_gray, 1.6, 1.6)
         )
         gaussian_blur = mock.Mock(return_value=blurred)
-        canny = mock.Mock(return_value=edges)
+        canny = mock.Mock(return_value=raw_edges)
+        close_gaps = mock.Mock(return_value=closed_edges)
         patches = [
             mock.patch.object(
                 read_page,
@@ -110,6 +192,11 @@ class PreprocessTests(unittest.TestCase):
                 new=canny,
                 create=True,
             ),
+            mock.patch.object(
+                read_page,
+                "close_page_edge_gaps",
+                new=close_gaps,
+            ),
         ]
 
         for patch in patches:
@@ -123,11 +210,12 @@ class PreprocessTests(unittest.TestCase):
             for patch in reversed(patches):
                 patch.stop()
 
-        self.assertIs(actual, edges)
+        self.assertIs(actual, closed_edges)
         self.assertEqual((scale_x, scale_y), (1.6, 1.6))
         resize_detection.assert_called_once_with(gray, settings)
         gaussian_blur.assert_called_once_with(detection_gray, (5, 5), 0)
         canny.assert_called_once_with(blurred, 50, 150)
+        close_gaps.assert_called_once_with(raw_edges, settings)
 
     def test_detection_edges_reject_invalid_blur_and_canny_settings(self):
         defaults = config.DEFAULTS["ocr"]["page_detection"]
@@ -858,12 +946,14 @@ class PreprocessTests(unittest.TestCase):
         frame = object()
         gray = object()
         prepared = object()
+        deskewed = object()
         settings = dict(config.DEFAULTS["ocr"])
         settings["page_detection"] = dict(settings["page_detection"])
         settings["page_detection"]["enabled"] = False
         cvt_color = mock.Mock(return_value=gray)
         detect_edges = mock.Mock()
         prepare_ocr = mock.Mock(return_value=prepared)
+        deskew = mock.Mock(return_value=(deskewed, 1.5, True))
         warp = mock.Mock()
         patches = [
             mock.patch.object(
@@ -890,6 +980,11 @@ class PreprocessTests(unittest.TestCase):
             ),
             mock.patch.object(
                 read_page,
+                "deskew_ocr_source",
+                new=deskew,
+            ),
+            mock.patch.object(
+                read_page,
                 "warp_page",
                 new=warp,
             ),
@@ -906,7 +1001,8 @@ class PreprocessTests(unittest.TestCase):
         self.assertIs(actual, prepared)
         detect_edges.assert_not_called()
         warp.assert_not_called()
-        prepare_ocr.assert_called_once_with(gray, settings)
+        deskew.assert_called_once_with(gray, settings)
+        prepare_ocr.assert_called_once_with(deskewed, settings)
         self.assertEqual(
             metadata,
             {
@@ -918,6 +1014,9 @@ class PreprocessTests(unittest.TestCase):
                 "contours": [],
                 "detection_scale": (1.0, 1.0),
                 "warped": None,
+                "deskew_angle": 1.5,
+                "deskew_applied": True,
+                "deskewed": deskewed,
             },
         )
 
@@ -932,6 +1031,7 @@ class PreprocessTests(unittest.TestCase):
         ordered_corners = object()
         source_corners = object()
         warped_page = object()
+        deskewed_page = object()
         prepared = object()
         settings = config.DEFAULTS["ocr"]
         cvt_color = mock.Mock(return_value=gray)
@@ -942,6 +1042,7 @@ class PreprocessTests(unittest.TestCase):
         scale_corners = mock.Mock(return_value=source_corners)
         warp = mock.Mock(return_value=warped_page)
         prepare_ocr = mock.Mock(return_value=prepared)
+        deskew = mock.Mock(return_value=(deskewed_page, -2.0, True))
         patches = [
             mock.patch.object(
                 read_page.cv2,
@@ -990,6 +1091,11 @@ class PreprocessTests(unittest.TestCase):
                 "prepare_ocr_image",
                 new=prepare_ocr,
             ),
+            mock.patch.object(
+                read_page,
+                "deskew_ocr_source",
+                new=deskew,
+            ),
         ]
 
         for patch in patches:
@@ -1023,7 +1129,8 @@ class PreprocessTests(unittest.TestCase):
             gray.shape,
         )
         warp.assert_called_once_with(gray, source_corners)
-        prepare_ocr.assert_called_once_with(warped_page, settings)
+        deskew.assert_called_once_with(warped_page, settings)
+        prepare_ocr.assert_called_once_with(deskewed_page, settings)
         self.assertEqual(
             metadata,
             {
@@ -1035,6 +1142,9 @@ class PreprocessTests(unittest.TestCase):
                 "contours": contours,
                 "detection_scale": (1.6, 1.6),
                 "warped": warped_page,
+                "deskew_angle": -2.0,
+                "deskew_applied": True,
+                "deskewed": deskewed_page,
             },
         )
 
@@ -1089,6 +1199,256 @@ class PreprocessTests(unittest.TestCase):
         settings["threshold_c"] = float("inf")
         with self.assertRaisesRegex(ValueError, "threshold_c"):
             read_page.threshold_for_ocr(object(), settings)
+
+    def test_estimate_text_skew_uses_weighted_median_of_hough_lines(self):
+        binary = mock.Mock()
+        binary.shape = (100, 1000)
+        text_mask = object()
+        kernel = object()
+        line_mask = object()
+        settings = config.DEFAULTS["ocr"]
+        bitwise_not = mock.Mock(return_value=text_mask)
+        get_kernel = mock.Mock(return_value=kernel)
+        morphology = mock.Mock(return_value=line_mask)
+        lines = [
+            [[0, 0, 300, 10]],
+            [[0, 20, 400, 34]],
+            [[0, 40, 300, 50]],
+            [[10, 0, 10, 90]],
+            [[0, 60, 100, 64]],
+        ]
+        hough = mock.Mock(return_value=lines)
+        patches = [
+            mock.patch.object(
+                read_page.cv2,
+                "MORPH_RECT",
+                1,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "MORPH_CLOSE",
+                2,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "bitwise_not",
+                new=bitwise_not,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "getStructuringElement",
+                new=get_kernel,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "morphologyEx",
+                new=morphology,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "HoughLinesP",
+                new=hough,
+                create=True,
+            ),
+        ]
+
+        for patch in patches:
+            patch.start()
+        try:
+            actual = read_page.estimate_text_skew(binary, settings)
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+
+        self.assertAlmostEqual(
+            actual,
+            math.degrees(math.atan2(10, 300)),
+        )
+        bitwise_not.assert_called_once_with(binary)
+        get_kernel.assert_called_once_with(1, (31, 3))
+        morphology.assert_called_once_with(text_mask, 2, kernel)
+        hough.assert_called_once_with(
+            line_mask,
+            1,
+            math.pi / 180.0,
+            40,
+            minLineLength=200,
+            maxLineGap=50,
+        )
+
+    def test_estimate_text_skew_requires_enough_reliable_lines(self):
+        binary = mock.Mock()
+        binary.shape = (100, 1000)
+        settings = config.DEFAULTS["ocr"]
+        patches = [
+            mock.patch.object(
+                read_page.cv2,
+                "MORPH_RECT",
+                1,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "MORPH_CLOSE",
+                2,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "bitwise_not",
+                return_value=object(),
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "getStructuringElement",
+                return_value=object(),
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "morphologyEx",
+                return_value=object(),
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "HoughLinesP",
+                return_value=[[[0, 0, 300, 10]]],
+                create=True,
+            ),
+        ]
+
+        for patch in patches:
+            patch.start()
+        try:
+            actual = read_page.estimate_text_skew(binary, settings)
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+
+        self.assertIsNone(actual)
+
+    def test_rotate_gray_image_expands_canvas_and_uses_white_border(self):
+        gray = mock.Mock()
+        gray.shape = (100, 200)
+        cosine = math.cos(math.radians(10))
+        sine = math.sin(math.radians(10))
+        transform = [
+            [cosine, sine, 0.0],
+            [-sine, cosine, 0.0],
+        ]
+        rotated = object()
+        get_rotation = mock.Mock(return_value=transform)
+        warp_affine = mock.Mock(return_value=rotated)
+        patches = [
+            mock.patch.object(
+                read_page.cv2,
+                "INTER_CUBIC",
+                2,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "BORDER_CONSTANT",
+                3,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "getRotationMatrix2D",
+                new=get_rotation,
+                create=True,
+            ),
+            mock.patch.object(
+                read_page.cv2,
+                "warpAffine",
+                new=warp_affine,
+                create=True,
+            ),
+        ]
+
+        for patch in patches:
+            patch.start()
+        try:
+            actual = read_page.rotate_gray_image(gray, 10.0)
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+
+        self.assertIs(actual, rotated)
+        get_rotation.assert_called_once_with((100.0, 50.0), 10.0, 1.0)
+        warp_affine.assert_called_once_with(
+            gray,
+            transform,
+            (215, 134),
+            flags=2,
+            borderMode=3,
+            borderValue=255,
+        )
+        self.assertAlmostEqual(transform[0][2], 7.5)
+        self.assertAlmostEqual(transform[1][2], 17.0)
+
+    def test_deskew_ocr_source_rotates_only_above_minimum_angle(self):
+        gray = object()
+        binary = object()
+        rotated = object()
+        settings = config.DEFAULTS["ocr"]
+        threshold = mock.Mock(return_value=binary)
+        estimate = mock.Mock(side_effect=[2.25, 0.20])
+        rotate = mock.Mock(return_value=rotated)
+        patches = [
+            mock.patch.object(
+                read_page,
+                "threshold_for_ocr",
+                new=threshold,
+            ),
+            mock.patch.object(
+                read_page,
+                "estimate_text_skew",
+                new=estimate,
+            ),
+            mock.patch.object(
+                read_page,
+                "rotate_gray_image",
+                new=rotate,
+            ),
+        ]
+
+        for patch in patches:
+            patch.start()
+        try:
+            applied = read_page.deskew_ocr_source(gray, settings)
+            skipped = read_page.deskew_ocr_source(gray, settings)
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+
+        self.assertEqual(applied, (rotated, 2.25, True))
+        self.assertEqual(skipped, (gray, 0.20, False))
+        self.assertEqual(threshold.call_count, 2)
+        self.assertEqual(estimate.call_count, 2)
+        rotate.assert_called_once_with(gray, 2.25)
+
+    def test_deskew_ocr_source_skips_work_when_disabled(self):
+        gray = object()
+        settings = dict(config.DEFAULTS["ocr"])
+        settings["deskew"] = dict(settings["deskew"])
+        settings["deskew"]["enabled"] = False
+
+        with mock.patch.object(
+            read_page,
+            "threshold_for_ocr",
+        ) as threshold:
+            actual = read_page.deskew_ocr_source(gray, settings)
+
+        self.assertEqual(actual, (gray, None, False))
+        threshold.assert_not_called()
 
     def test_prepare_ocr_image_resizes_then_thresholds_without_blur(self):
         gray = object()
@@ -1160,6 +1520,7 @@ class DebugImageTests(unittest.TestCase):
         frame.copy.return_value = overlay
         edges = object()
         warped = object()
+        deskewed = object()
         metadata = {
             "corners": [
                 (10.2, 20.4),
@@ -1169,6 +1530,7 @@ class DebugImageTests(unittest.TestCase):
             ],
             "edges": edges,
             "warped": warped,
+            "deskewed": deskewed,
         }
         line = mock.Mock()
         imwrite = mock.Mock()
@@ -1213,6 +1575,7 @@ class DebugImageTests(unittest.TestCase):
                 mock.call(str(runtime / "page_edges.png"), edges),
                 mock.call(str(runtime / "page_detected.jpg"), overlay),
                 mock.call(str(runtime / "page_warped.png"), warped),
+                mock.call(str(runtime / "page_deskewed.png"), deskewed),
             ]
         )
 
@@ -1281,8 +1644,10 @@ class DebugImageTests(unittest.TestCase):
             runtime = Path(directory)
             edges_path = runtime / "page_edges.png"
             warped_path = runtime / "page_warped.png"
+            deskewed_path = runtime / "page_deskewed.png"
             edges_path.write_bytes(b"old edges")
             warped_path.write_bytes(b"old warp")
+            deskewed_path.write_bytes(b"old deskew")
             frame = mock.Mock()
             overlay = object()
             frame.copy.return_value = overlay
@@ -1323,6 +1688,7 @@ class DebugImageTests(unittest.TestCase):
 
             self.assertFalse(edges_path.exists())
             self.assertFalse(warped_path.exists())
+            self.assertFalse(deskewed_path.exists())
             line.assert_not_called()
             imwrite.assert_called_once_with(
                 str(runtime / "page_detected.jpg"),
@@ -1450,6 +1816,43 @@ class DebugStatusTests(unittest.TestCase):
             "[OCR debug] Fallback: OCR całej klatki; "
             "detekcja kartki jest wyłączona.",
             flush=True,
+        )
+
+    def test_debug_status_reports_applied_deskew_angle(self):
+        settings = {
+            "deskew": {
+                "enabled": True,
+                "min_angle_degrees": 0.40,
+            },
+            "page_detection": {
+                "enabled": True,
+                "debug_console": True,
+            },
+        }
+        metadata = {
+            "page_detected": False,
+            "corners_inferred": False,
+            "used_fallback": True,
+            "deskew_angle": 2.345,
+            "deskew_applied": True,
+        }
+
+        with mock.patch("builtins.print") as print_message:
+            read_page.write_ocr_debug_status(metadata, settings)
+
+        self.assertEqual(
+            print_message.call_args_list,
+            [
+                mock.call(
+                    "[OCR debug] Fallback: OCR całej klatki; nie znaleziono "
+                    "wiarygodnego czworokąta kartki.",
+                    flush=True,
+                ),
+                mock.call(
+                    "[OCR debug] Deskew: zastosowano obrót 2.35°.",
+                    flush=True,
+                ),
+            ],
         )
 
 

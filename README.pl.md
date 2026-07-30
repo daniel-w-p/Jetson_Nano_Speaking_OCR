@@ -8,8 +8,9 @@
 
 ```text
 Opis:    kamera → YOLOv5n → TensorRT → polski komunikat → Piper → głośnik
-Czytanie: kamera → szarość/Canny → kontury → korekcja perspektywy
-          → próg adaptacyjny → Tesseract (pol) → Piper → głośnik
+Czytanie: kamera → szarość/Canny → domknięcie przerw → kontury
+          → korekcja perspektywy → deskew → próg adaptacyjny
+          → Tesseract (pol) → Piper → głośnik
 ```
 
 - Po instalacji działa całkowicie lokalnie.
@@ -21,7 +22,8 @@ Czytanie: kamera → szarość/Canny → kontury → korekcja perspektywy
 OCR szuka największego, odpowiednio dużego i wypukłego czworokąta, porządkuje
 jego narożniki i prostuje kartkę w pełnej rozdzielczości. Jeśli nie widzi całej
 kartki albo transformacja się nie powiedzie, bezpiecznie przetwarza całą klatkę
-i nadal uruchamia Tesseract.
+i nadal uruchamia Tesseract. Przed OCR niezależnie mierzy nachylenie wierszy i
+w razie potrzeby obraca obraz.
 
 > To demonstrator technologii wspomagającej, a nie certyfikowane urządzenie nawigacyjne lub bezpieczeństwa. Wyniki mogą być błędne; nie należy polegać na nich w ruchu drogowym, przy lekach ani w innych sytuacjach krytycznych.
 
@@ -77,12 +79,25 @@ uzupełniany. Pełny zestaw znajduje się w
   "scale_factor": 1.6,
   "threshold_block_size": 31,
   "threshold_c": 11,
+  "deskew": {
+    "enabled": true,
+    "line_kernel_width": 31,
+    "line_kernel_height": 3,
+    "hough_threshold": 40,
+    "min_line_length_ratio": 0.20,
+    "max_line_gap_ratio": 0.05,
+    "min_lines": 3,
+    "min_angle_degrees": 0.40,
+    "max_angle_degrees": 12.0
+  },
   "page_detection": {
     "enabled": true,
     "max_width": 800,
     "blur_kernel": 5,
     "canny_low": 50,
     "canny_high": 150,
+    "edge_close_kernel": 5,
+    "edge_close_iterations": 1,
     "contour_candidates": 10,
     "approx_epsilon_ratio": 0.02,
     "min_page_area_ratio": 0.20,
@@ -98,6 +113,8 @@ uzupełniany. Pełny zestaw znajduje się w
   transformacja korzysta z pełnej klatki.
 - `min_page_area_ratio` określa minimalną część obrazu zajmowaną przez kartkę.
 - `approx_epsilon_ratio` steruje przybliżaniem konturu czworokątem.
+- `edge_close_kernel` i `edge_close_iterations` sterują morfologicznym
+  domykaniem krótkich przerw na mapie Canny przed wyszukaniem konturów.
 - `clipped_page_fallback` pozwala domknąć widoczne krawędzie kartki granicami
   kadru, gdy część strony wychodzi poza obraz.
 - `frame_border_thickness` określa grubość pomocniczej ramki na mapie Canny;
@@ -107,6 +124,10 @@ uzupełniany. Pełny zestaw znajduje się w
   uruchamia ten komunikat.
 - `scale_factor`, `threshold_block_size` i `threshold_c` przygotowują
   wyprostowany obraz bezpośrednio dla Tesseract.
+- Sekcja `deskew` łączy znaki w pasma wierszy, wykrywa ich dominujący kąt
+  przez `HoughLinesP` i obraca obraz szary. Kąty mniejsze niż
+  `min_angle_degrees` są ignorowane, a większe niż `max_angle_degrees`
+  odrzucane jako niewiarygodne.
 - Ustawienie `page_detection.enabled` na `false` wymusza OCR całej klatki.
 
 Identyfikator głośnika sprawdzisz poleceniem `aplay -l`. Przykład:
@@ -152,12 +173,14 @@ Do pierwszych testów na Jetsonie ustaw tymczasowo:
 Po każdej akcji odczytu program nadal nadpisuje `tmp/page_raw.jpg` i
 `tmp/page_prepared.png`. Przy włączonym debugowaniu powstają dodatkowo:
 
-- `tmp/page_edges.png` — krawędzie wykryte przez Canny;
+- `tmp/page_edges.png` — krawędzie Canny po morfologicznym domknięciu przerw;
 - `tmp/page_detected.jpg` — surowa klatka z obrysem kartki: zielonym dla
   pełnego konturu albo pomarańczowym dla narożników dopowiedzianych z granic
   kadru;
 - `tmp/page_warped.png` — wyprostowana kartka przed progowaniem; przy
   fallbacku nieaktualny plik jest usuwany.
+- `tmp/page_deskewed.png` — obraz szary po korekcji nachylenia wierszy;
+  powstaje tylko wtedy, gdy deskew faktycznie wykonał obrót.
 
 Przy dowolnej fladze `debug_*` ustawionej na `true` konsola, a w trybie usługi
 również `journalctl`, pokaże wybraną ścieżkę, na przykład:
@@ -166,13 +189,14 @@ również `journalctl`, pokaże wybraną ścieżkę, na przykład:
 [OCR debug] Fallback: brak; wykryto pełny czworokąt kartki.
 [OCR debug] Fallback: narożniki domknięte granicą kadru.
 [OCR debug] Fallback: OCR całej klatki; nie znaleziono wiarygodnego czworokąta kartki.
+[OCR debug] Deskew: zastosowano obrót 2.35°.
 ```
 
 Sprawdzaj je w tej kolejności: `page_raw` → `page_edges` → `page_detected` →
-`page_warped` → `page_prepared`. Pozwala to ustalić, czy problem powstał przy
-rejestracji obrazu, detekcji krawędzi, wyborze konturu, transformacji czy
-binaryzacji. Po zakończeniu strojenia wyłącz `debug_images`, aby ograniczyć
-zapisy na karcie SD.
+`page_warped` → `page_deskewed` → `page_prepared`. Pozwala to ustalić, czy
+problem powstał przy rejestracji obrazu, detekcji krawędzi, wyborze konturu,
+transformacji, korekcji kąta czy binaryzacji. Po zakończeniu strojenia wyłącz
+`debug_images`, aby ograniczyć zapisy na karcie SD.
 
 Najczęstsze problemy:
 

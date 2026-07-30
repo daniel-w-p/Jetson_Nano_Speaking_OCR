@@ -10,8 +10,9 @@ The assistant has two event-driven modes:
 
 ```text
 Describe: camera → YOLOv5n → TensorRT → Polish description → Piper → speaker
-Read:     camera → grayscale/Canny → contours → perspective correction
-          → adaptive threshold → Tesseract (pol) → Piper → speaker
+Read:     camera → grayscale/Canny → gap closing → contours
+          → perspective correction → deskew → adaptive threshold
+          → Tesseract (pol) → Piper → speaker
 ```
 
 - Fully local after installation; no cloud inference or speech service.
@@ -23,7 +24,8 @@ Read:     camera → grayscale/Canny → contours → perspective correction
 OCR finds the largest sufficiently large convex quadrilateral, orders its
 corners and rectifies the page at full resolution. If the whole page is not
 visible or perspective correction fails, it safely processes the full frame
-and still invokes Tesseract.
+and still invokes Tesseract. Before OCR it independently measures the dominant
+text-line angle and rotates the image when needed.
 
 > This is an assistive **demonstrator**, not a certified mobility or safety device. Detection and OCR can be wrong; do not rely on it for navigation, traffic, medication or other safety-critical decisions.
 
@@ -84,12 +86,25 @@ The complete set is available in
   "scale_factor": 1.6,
   "threshold_block_size": 31,
   "threshold_c": 11,
+  "deskew": {
+    "enabled": true,
+    "line_kernel_width": 31,
+    "line_kernel_height": 3,
+    "hough_threshold": 40,
+    "min_line_length_ratio": 0.20,
+    "max_line_gap_ratio": 0.05,
+    "min_lines": 3,
+    "min_angle_degrees": 0.40,
+    "max_angle_degrees": 12.0
+  },
   "page_detection": {
     "enabled": true,
     "max_width": 800,
     "blur_kernel": 5,
     "canny_low": 50,
     "canny_high": 150,
+    "edge_close_kernel": 5,
+    "edge_close_iterations": 1,
     "contour_candidates": 10,
     "approx_epsilon_ratio": 0.02,
     "min_page_area_ratio": 0.20,
@@ -105,6 +120,8 @@ The complete set is available in
   correction uses the full-resolution frame.
 - `min_page_area_ratio` controls how much of the image a page must occupy.
 - `approx_epsilon_ratio` controls contour-to-quadrilateral approximation.
+- `edge_close_kernel` and `edge_close_iterations` control morphological
+  closing of short Canny gaps before contour detection.
 - `clipped_page_fallback` closes visible page edges against the frame when
   part of the page extends outside the image.
 - `frame_border_thickness` controls the helper border on the Canny map; the
@@ -114,6 +131,10 @@ The complete set is available in
   this status.
 - `scale_factor`, `threshold_block_size` and `threshold_c` prepare the
   rectified image directly for Tesseract.
+- The `deskew` section joins characters into text-line bands, measures their
+  dominant angle with `HoughLinesP`, and rotates the grayscale image. Angles
+  below `min_angle_degrees` are ignored; angles above `max_angle_degrees` are
+  rejected as unreliable.
 - Setting `page_detection.enabled` to `false` forces full-frame OCR.
 
 For a USB speaker, find the ALSA identifier with `aplay -l`, then set for example:
@@ -172,11 +193,13 @@ For the first tests on the Jetson, temporarily set:
 Every read action continues to overwrite `tmp/page_raw.jpg` and
 `tmp/page_prepared.png`. With debugging enabled it also writes:
 
-- `tmp/page_edges.png` — the Canny edge map;
+- `tmp/page_edges.png` — the Canny edge map after morphological gap closing;
 - `tmp/page_detected.jpg` — the raw frame with the selected page outlined in
   green for a complete contour or orange for corners inferred from the frame;
 - `tmp/page_warped.png` — the rectified grayscale page before thresholding;
   a stale file is removed when full-frame fallback is used.
+- `tmp/page_deskewed.png` — the grayscale image after text-line angle
+  correction; it is written only when deskew actually rotates the image.
 
 When any `debug_*` flag is `true`, the console—or `journalctl` in service
 mode—reports which path was selected, for example:
@@ -185,12 +208,13 @@ mode—reports which path was selected, for example:
 [OCR debug] Fallback: brak; wykryto pełny czworokąt kartki.
 [OCR debug] Fallback: narożniki domknięte granicą kadru.
 [OCR debug] Fallback: OCR całej klatki; nie znaleziono wiarygodnego czworokąta kartki.
+[OCR debug] Deskew: zastosowano obrót 2.35°.
 ```
 
 Inspect them in this order: `page_raw` → `page_edges` → `page_detected` →
-`page_warped` → `page_prepared`. This separates camera, edge detection,
-contour selection, perspective and thresholding problems. Disable
-`debug_images` after tuning to reduce SD-card writes.
+`page_warped` → `page_deskewed` → `page_prepared`. This separates camera,
+edge detection, contour selection, perspective, deskew and thresholding
+problems. Disable `debug_images` after tuning to reduce SD-card writes.
 
 Common issues:
 

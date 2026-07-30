@@ -36,6 +36,32 @@ def resize_for_page_detection(gray, settings):
     return resized, scale_x, scale_y
 
 
+def close_page_edge_gaps(edges, settings):
+    """Close short gaps in Canny edges before contour detection."""
+    kernel_size = int(settings["edge_close_kernel"])
+    if kernel_size <= 0 or kernel_size % 2 == 0:
+        raise ValueError(
+            "page_detection.edge_close_kernel must be positive and odd"
+        )
+
+    iterations = int(settings["edge_close_iterations"])
+    if iterations <= 0:
+        raise ValueError(
+            "page_detection.edge_close_iterations must be greater than zero"
+        )
+
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT,
+        (kernel_size, kernel_size),
+    )
+    return cv2.morphologyEx(
+        edges,
+        cv2.MORPH_CLOSE,
+        kernel,
+        iterations=iterations,
+    )
+
+
 def detect_page_edges(gray, settings):
     """Build a Canny edge map on a detection-sized grayscale image."""
     blur_kernel = int(settings["blur_kernel"])
@@ -57,7 +83,8 @@ def detect_page_edges(gray, settings):
         (blur_kernel, blur_kernel),
         0,
     )
-    edges = cv2.Canny(blurred, canny_low, canny_high)
+    raw_edges = cv2.Canny(blurred, canny_low, canny_high)
+    edges = close_page_edge_gaps(raw_edges, settings)
     return edges, scale_x, scale_y
 
 
@@ -475,6 +502,161 @@ def threshold_for_ocr(gray_page, settings):
     )
 
 
+def estimate_text_skew(binary_page, settings):
+    """Estimate the dominant text-line angle in degrees, or return None."""
+    deskew_settings = settings["deskew"]
+    kernel_width = int(deskew_settings["line_kernel_width"])
+    kernel_height = int(deskew_settings["line_kernel_height"])
+    if kernel_width <= 0 or kernel_height <= 0:
+        raise ValueError("ocr.deskew line kernel dimensions must be positive")
+
+    hough_threshold = int(deskew_settings["hough_threshold"])
+    if hough_threshold <= 0:
+        raise ValueError("ocr.deskew.hough_threshold must be greater than zero")
+
+    min_length_ratio = float(deskew_settings["min_line_length_ratio"])
+    max_gap_ratio = float(deskew_settings["max_line_gap_ratio"])
+    if min_length_ratio <= 0 or min_length_ratio > 1:
+        raise ValueError(
+            "ocr.deskew.min_line_length_ratio must be between zero and one"
+        )
+    if max_gap_ratio < 0 or max_gap_ratio > 1:
+        raise ValueError(
+            "ocr.deskew.max_line_gap_ratio must be between zero and one"
+        )
+
+    min_lines = int(deskew_settings["min_lines"])
+    if min_lines <= 0:
+        raise ValueError("ocr.deskew.min_lines must be greater than zero")
+
+    max_angle = float(deskew_settings["max_angle_degrees"])
+    if max_angle <= 0 or max_angle >= 45 or not math.isfinite(max_angle):
+        raise ValueError(
+            "ocr.deskew.max_angle_degrees must be between zero and 45"
+        )
+
+    height, width = binary_page.shape[:2]
+    if height <= 0 or width <= 0:
+        raise ValueError("OCR deskew image must have positive dimensions")
+
+    text_mask = cv2.bitwise_not(binary_page)
+    line_kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT,
+        (kernel_width, kernel_height),
+    )
+    line_mask = cv2.morphologyEx(
+        text_mask,
+        cv2.MORPH_CLOSE,
+        line_kernel,
+    )
+    min_line_length = max(1, int(round(width * min_length_ratio)))
+    max_line_gap = max(0, int(round(width * max_gap_ratio)))
+    lines = cv2.HoughLinesP(
+        line_mask,
+        1,
+        math.pi / 180.0,
+        hough_threshold,
+        minLineLength=min_line_length,
+        maxLineGap=max_line_gap,
+    )
+    if lines is None:
+        return None
+
+    candidates = []
+    for line in lines:
+        coordinates = line[0] if len(line) == 1 else line
+        if len(coordinates) != 4:
+            continue
+        x1, y1, x2, y2 = [float(value) for value in coordinates]
+        delta_x = x2 - x1
+        delta_y = y2 - y1
+        length = math.hypot(delta_x, delta_y)
+        if length < min_line_length:
+            continue
+
+        angle = math.degrees(math.atan2(delta_y, delta_x))
+        while angle > 90.0:
+            angle -= 180.0
+        while angle < -90.0:
+            angle += 180.0
+        if abs(angle) <= max_angle:
+            candidates.append((angle, length))
+
+    if len(candidates) < min_lines:
+        return None
+
+    candidates.sort(key=lambda candidate: candidate[0])
+    half_weight = sum(candidate[1] for candidate in candidates) / 2.0
+    accumulated_weight = 0.0
+    for angle, length in candidates:
+        accumulated_weight += length
+        if accumulated_weight >= half_weight:
+            return angle
+    return candidates[-1][0]
+
+
+def rotate_gray_image(gray_page, angle):
+    """Rotate a grayscale page without clipping its expanded bounds."""
+    if not math.isfinite(angle):
+        raise ValueError("OCR deskew angle must be finite")
+    height, width = gray_page.shape[:2]
+    if height <= 0 or width <= 0:
+        raise ValueError("OCR deskew image must have positive dimensions")
+
+    center = (width / 2.0, height / 2.0)
+    transform = cv2.getRotationMatrix2D(center, angle, 1.0)
+    cosine = abs(float(transform[0][0]))
+    sine = abs(float(transform[0][1]))
+    target_width = max(1, int(math.ceil(width * cosine + height * sine)))
+    target_height = max(1, int(math.ceil(height * cosine + width * sine)))
+    transform[0][2] += target_width / 2.0 - center[0]
+    transform[1][2] += target_height / 2.0 - center[1]
+
+    return cv2.warpAffine(
+        gray_page,
+        transform,
+        (target_width, target_height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=255,
+    )
+
+
+def deskew_ocr_source(gray_page, settings):
+    """Deskew text lines while retaining the original image on uncertainty."""
+    deskew_settings = settings["deskew"]
+    if not deskew_settings["enabled"]:
+        return gray_page, None, False
+
+    min_angle = float(deskew_settings["min_angle_degrees"])
+    max_angle = float(deskew_settings["max_angle_degrees"])
+    if (
+        min_angle < 0
+        or min_angle >= max_angle
+        or not math.isfinite(min_angle)
+    ):
+        raise ValueError(
+            "ocr.deskew.min_angle_degrees must be non-negative and "
+            "less than max_angle_degrees"
+        )
+
+    preliminary_binary = threshold_for_ocr(gray_page, settings)
+    angle = estimate_text_skew(preliminary_binary, settings)
+    if angle is None or abs(angle) < min_angle:
+        return gray_page, angle, False
+
+    opencv_error = getattr(cv2, "error", None)
+    try:
+        rotated = rotate_gray_image(gray_page, angle)
+    except Exception as error:
+        if opencv_error is not None and isinstance(error, opencv_error):
+            return gray_page, angle, False
+        raise
+    if rotated is None:
+        return gray_page, angle, False
+    return rotated, angle, True
+
+
 def prepare_ocr_image(gray_page, settings):
     """Scale and binarize a grayscale page without detector-side blur."""
     scale_factor = float(settings["scale_factor"])
@@ -522,8 +704,12 @@ def preprocess_for_ocr(frame, settings):
         )
 
     ocr_source, warped, used_fallback = select_ocr_source(gray, corners)
+    deskewed_source, deskew_angle, deskew_applied = deskew_ocr_source(
+        ocr_source,
+        settings,
+    )
 
-    prepared = prepare_ocr_image(ocr_source, settings)
+    prepared = prepare_ocr_image(deskewed_source, settings)
     metadata = {
         "page_detected": corners is not None,
         "corners_inferred": corners_inferred and corners is not None,
@@ -533,6 +719,9 @@ def preprocess_for_ocr(frame, settings):
         "contours": contours,
         "detection_scale": detection_scale,
         "warped": warped,
+        "deskew_angle": deskew_angle,
+        "deskew_applied": deskew_applied,
+        "deskewed": deskewed_source if deskew_applied else None,
     }
     return prepared, metadata
 
@@ -585,6 +774,13 @@ def write_ocr_debug_images(runtime, frame, metadata, enabled):
     else:
         cv2.imwrite(str(warped_path), warped)
 
+    deskewed_path = runtime / "page_deskewed.png"
+    deskewed = metadata.get("deskewed")
+    if deskewed is None:
+        _remove_runtime_artifact(deskewed_path)
+    else:
+        cv2.imwrite(str(deskewed_path), deskewed)
+
 
 def any_ocr_debug_flag_enabled(settings):
     """Return whether any boolean debug_* option is enabled recursively."""
@@ -627,6 +823,26 @@ def write_ocr_debug_status(metadata, settings):
         status = "brak; wykryto pełny czworokąt kartki."
 
     print("[OCR debug] Fallback: {0}".format(status), flush=True)
+
+    deskew_settings = settings.get("deskew")
+    if deskew_settings is None:
+        return
+    angle = metadata.get("deskew_angle")
+    if not deskew_settings["enabled"]:
+        deskew_status = "wyłączony."
+    elif angle is None:
+        deskew_status = "pominięty; za mało wiarygodnych linii tekstu."
+    elif metadata.get("deskew_applied", False):
+        deskew_status = "zastosowano obrót {0:.2f}°.".format(angle)
+    elif abs(angle) < float(deskew_settings["min_angle_degrees"]):
+        deskew_status = (
+            "pominięty; zmierzony kąt {0:.2f}° jest poniżej progu."
+        ).format(angle)
+    else:
+        deskew_status = (
+            "pominięty; obrót o {0:.2f}° nie powiódł się."
+        ).format(angle)
+    print("[OCR debug] Deskew: {0}".format(deskew_status), flush=True)
 
 
 def ocr_image(path, settings):
